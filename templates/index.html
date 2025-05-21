@@ -28,7 +28,7 @@
                 
                 {# Bulk Email - Requires 'email.bulk' or owner #}
                 {% if user_role == 'owner' or 'email.bulk' in user_permissions %}
-                <li><a href="{{ url_for('email.bulk_email') }}" class="sidebar-link"><i class="fas fa-envelope sidebar-icon"></i> <span>Bulk Email</span></a></li>
+                <li><a href="#" class="sidebar-link" data-target="bulk-email-panel"><i class="fas fa-envelope sidebar-icon"></i> <span>Bulk Email</span></a></li>
                 {% endif %}
                 
                 {# Schedule Download - Requires 'download.schedule' or owner #}
@@ -267,6 +267,11 @@
                 <input type="text" id="download-base-path" name="download_base_path" value="{{ default_download_base_path or '' }}">
             </div>
             <button id="save-advanced-settings" title="Save advanced settings"><i class="fas fa-save"></i> Save Settings</button>
+        </div>
+
+        {# Bulk Email Panel #}
+        <div class="main-panel" id="bulk-email-panel" style="display: none;">
+            {% block bulk_email_content %}{% endblock %}
         </div>
     </div>
     <!-- Help Modal -->

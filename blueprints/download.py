@@ -132,7 +132,7 @@ init_scheduler_db()
 # --- Download Process Function (Uses current_app) ---
 def run_download_process(params, session_id=None):
     """Main download function executed in a background thread."""
-    automation = None
+    automation = None # Ensure automation is always defined
     process_successful = True
 
     try:
@@ -142,17 +142,25 @@ def run_download_process(params, session_id=None):
 
         # --- Setup within Lock ---
         with lock:
-            if shared_state['is_running']: 
+            if shared_state['is_automation_running']: 
                 print("Download process already running, exiting new thread request.")
                 return
-            shared_state['is_running'] = True # Modify shared state dict
+            shared_state['is_automation_running'] = True # Modify shared state dict
             status_list.clear() # Clear the shared list
 
         if session_id:
             update_job_status_by_session(session_id, 'running')
 
         # Use the utility function which now uses current_app
-        stream_status_update("Starting report download process...")
+        stream_status_update("Starting report download process...", log_entry={
+            'SessionID': session_id,
+            'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'File Name': None,
+            'Start Date': None,
+            'End Date': None,
+            'Status': 'Started',
+            'Error Message': None
+        })
 
         # --- Extract Parameters ---
         email = params['email']
@@ -165,7 +173,11 @@ def run_download_process(params, session_id=None):
 
         # --- Prepare Download Folder ---
         timestamp_folder = "001" + datetime.now().strftime("%Y%m%d")
-        specific_download_folder = os.path.join(config.DOWNLOAD_BASE_PATH, timestamp_folder)
+        # Use current_app.config for DOWNLOAD_BASE_PATH
+        download_base_path = current_app.config.get('DOWNLOAD_BASE_PATH', '')
+        if not download_base_path:
+            raise ValueError("DOWNLOAD_BASE_PATH is not configured in app settings.")
+        specific_download_folder = os.path.join(download_base_path, timestamp_folder)
         try:
             os.makedirs(specific_download_folder, exist_ok=True)
             stream_status_update(f"Download folder for this run: {specific_download_folder}")
@@ -174,7 +186,11 @@ def run_download_process(params, session_id=None):
 
         # --- Initialize Automation ---
         stream_status_update("Initializing browser automation...")
-        automation = WebAutomation(config.DRIVER_PATH, specific_download_folder, status_callback=stream_status_update)
+        # Use current_app.config for DRIVER_PATH
+        driver_path = current_app.config.get('DRIVER_PATH', '')
+        if not driver_path:
+            raise ValueError("DRIVER_PATH is not configured in app settings.")
+        automation = WebAutomation(driver_path, specific_download_folder, status_callback=stream_status_update)
 
         # --- Login ---
         stream_status_update(f"Logging in with user: {email}...")
@@ -182,10 +198,12 @@ def run_download_process(params, session_id=None):
         first_report_url = link_report.get_report_url(first_report_info.get('report_type'))
         if not first_report_url:
             raise ValueError(f"Could not find URL for initial report type '{first_report_info.get('report_type')}' needed for login.")
-        if not config.OTP_SECRET:
-            raise ValueError("OTP_SECRET is not configured.")
+        # Use current_app.config for OTP_SECRET
+        otp_secret = current_app.config.get('OTP_SECRET', '')
+        if not otp_secret:
+            raise ValueError("OTP_SECRET is not configured in app settings.")
 
-        if not automation.login(first_report_url, email, password, config.OTP_SECRET, status_callback=stream_status_update):
+        if not automation.login(first_report_url, email, password, otp_secret, status_callback=stream_status_update):
             raise RuntimeError("Login failed after multiple attempts. Cannot proceed.")
         stream_status_update("Login successful.")
 
@@ -218,14 +236,25 @@ def run_download_process(params, session_id=None):
                 process_successful = False
                 continue
 
-            stream_status_update(f"--- Starting download for report: {report_type_key} ---")
+            stream_status_update(f"--- Starting download for report: {report_type_key} ---", log_entry={
+                'SessionID': session_id,
+                'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                'File Name': report_type_key,
+                'Start Date': from_date,
+                'End Date': to_date,
+                'Status': 'In Progress',
+                'Error Message': None
+            })
             stream_status_update(f"Date Range: {from_date} to {to_date}, Chunk Size/Mode: {chunk_size}")
 
             report_failed = False
+            error_message = None
             try:
-                if report_url in config.REGION_REQUIRED_REPORT_URLS:
+                # Use current_app.config for REGION_REQUIRED_REPORT_URLS
+                if report_url in current_app.config.get('REGION_REQUIRED_REPORT_URLS', []):
                     if not selected_regions_indices_str:
-                        stream_status_update(f"Error: Report '{report_type_key}' requires region selection, but none provided. Skipping.")
+                        error_message = f"Report '{report_type_key}' requires region selection, but none provided. Skipping."
+                        stream_status_update(f"Error: {error_message}")
                         report_failed = True
                     else:
                         try:
@@ -240,10 +269,12 @@ def run_download_process(params, session_id=None):
                                     status_callback=stream_status_update
                                 )
                             else:
-                                stream_status_update("ERROR: 'download_reports_for_all_regions' method missing.")
+                                error_message = "'download_reports_for_all_regions' method missing."
+                                stream_status_update(f"ERROR: {error_message}")
                                 report_failed = True
                         except (ValueError, TypeError, KeyError) as region_err:
-                            stream_status_update(f"Error processing region indices for '{report_type_key}': {region_err}. Skipping.")
+                            error_message = f"Error processing region indices for '{report_type_key}': {region_err}."
+                            stream_status_update(f"Error: {error_message} Skipping.")
                             report_failed = True
                 elif report_type_key == "FAF001 - Sales Report" and hasattr(automation, 'download_reports_in_chunks_1'):
                     automation.download_reports_in_chunks_1(report_url, from_date, to_date, chunk_size, stream_status_update)
@@ -265,14 +296,17 @@ def run_download_process(params, session_id=None):
                     stream_status_update(f"Using generic chunking download logic for '{report_type_key}'.")
                     automation.download_reports_in_chunks(report_url, from_date, to_date, chunk_size, stream_status_update)
                 else:
-                    stream_status_update(f"ERROR: No suitable download method found for report type '{report_type_key}'. Skipping.")
+                    error_message = f"No suitable download method found for report type '{report_type_key}'. Skipping."
+                    stream_status_update(f"ERROR: {error_message}")
                     report_failed = True
 
             except DownloadFailedException as report_err:
-                 stream_status_update(f"ERROR downloading report {report_type_key}: {report_err}")
+                 error_message = str(report_err)
+                 stream_status_update(f"ERROR downloading report {report_type_key}: {error_message}")
                  report_failed = True
             except WebDriverException as wd_err:
-                 stream_status_update(f"ERROR (WebDriver) during download of {report_type_key}: {wd_err}")
+                 error_message = str(wd_err)
+                 stream_status_update(f"ERROR (WebDriver) during download of {report_type_key}: {error_message}")
                  report_failed = True
                  traceback.print_exc()
                  if "invalid session id" in str(wd_err).lower():
@@ -280,29 +314,62 @@ def run_download_process(params, session_id=None):
                      process_successful = False
                      break 
             except Exception as generic_err:
-                 stream_status_update(f"FATAL UNEXPECTED ERROR during processing of {report_type_key}: {generic_err}")
+                 error_message = str(generic_err)
+                 stream_status_update(f"FATAL UNEXPECTED ERROR during processing of {report_type_key}: {error_message}")
                  report_failed = True
                  traceback.print_exc()
 
             if report_failed:
                 process_successful = False
-                stream_status_update(f"--- Download FAILED for report: {report_type_key} ---")
+                stream_status_update(f"--- Download FAILED for report: {report_type_key} ---", log_entry={
+                    'SessionID': session_id,
+                    'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    'File Name': report_type_key,
+                    'Start Date': from_date,
+                    'End Date': to_date,
+                    'Status': 'Failed',
+                    'Error Message': error_message
+                })
             else:
-                stream_status_update(f"--- Download COMPLETED for report: {report_type_key} ---")
+                stream_status_update(f"--- Download COMPLETED for report: {report_type_key} ---", log_entry={
+                    'SessionID': session_id,
+                    'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    'File Name': report_type_key,
+                    'Start Date': from_date,
+                    'End Date': to_date,
+                    'Status': 'Success',
+                    'Error Message': None
+                })
         # --- End of Reports Loop ---
 
     except (RuntimeError, ValueError, WebDriverException, AttributeError, KeyError) as setup_err:
-        # Added AttributeError/KeyError for current_app access issues
         error_message = f"A critical error occurred during setup or login: {setup_err}"
-        # Use stream_status_update carefully here, as current_app might be the problem
         print(f"FATAL ERROR: {error_message}") 
         traceback.print_exc()
         process_successful = False
+        stream_status_update(f"FATAL ERROR: {error_message}", log_entry={
+            'SessionID': session_id,
+            'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'File Name': None,
+            'Start Date': None,
+            'End Date': None,
+            'Status': 'Process Failed',
+            'Error Message': error_message
+        })
     except Exception as e:
         error_message = f"An unexpected critical error occurred: {e}"
         print(f"FATAL ERROR: {error_message}")
         traceback.print_exc()
         process_successful = False
+        stream_status_update(f"FATAL ERROR: {error_message}", log_entry={
+            'SessionID': session_id,
+            'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'File Name': None,
+            'Start Date': None,
+            'End Date': None,
+            'Status': 'Process Failed',
+            'Error Message': error_message
+        })
 
     finally:
         if automation:
@@ -314,12 +381,22 @@ def run_download_process(params, session_id=None):
                 traceback.print_exc()
 
         final_message = "PROCESS FINISHED: "
-        final_message += "All requested reports attempted."
+        final_status = 'Completed'
         if not process_successful:
              final_message += " One or more errors occurred. Please review logs and CSV file."
+             final_status = 'Completed with Errors'
         else:
              final_message += " Check logs and CSV file for individual report status."
-        stream_status_update(f"--- {final_message} ---")
+        
+        stream_status_update(f"--- {final_message} ---", log_entry={
+            'SessionID': session_id,
+            'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'File Name': None, # Overall process, no specific file
+            'Start Date': None,
+            'End Date': None,
+            'Status': final_status,
+            'Error Message': None if process_successful else "See previous log entries for details."
+        })
 
         if session_id:
             update_job_status_by_session(session_id, 'finished')
@@ -441,7 +518,7 @@ def stream_status_events():
                 with lock:
                     current_count = len(status_messages_list)
                     new_messages = status_messages_list[last_sent_count:]
-                    is_process_active = shared_state['is_running']
+                    is_process_active = shared_state['is_automation_running']
 
                 if new_messages:
                     for msg in new_messages:
@@ -452,7 +529,7 @@ def stream_status_events():
                 if not is_process_active and last_sent_count == current_count:
                     time.sleep(0.1) # Brief pause
                     with lock:
-                         final_process_check = shared_state['is_running']
+                         final_process_check = shared_state['is_automation_running']
                          final_message_count = len(status_messages_list)
                     if not final_process_check and last_sent_count == final_message_count:
                          yield f"data: FINISHED\n\n"
@@ -560,12 +637,16 @@ def save_config():
 @download_bp.route('/load-config/<config_name>', methods=['GET'])
 def load_config(config_name):
     """Loads a specific saved configuration."""
+    current_app.logger.debug(f"Attempting to load config: '{config_name}'")
     try:
         configs = load_configs()
+        current_app.logger.debug(f"Available configs: {list(configs.keys())}")
         config_data = configs.get(config_name)
         if config_data:
+            current_app.logger.debug(f"Config '{config_name}' found.")
             return jsonify(config_data)
         else:
+            current_app.logger.warning(f"Config '{config_name}' not found in loaded configs.")
             return jsonify({'status': 'error', 'message': 'Configuration not found.'}), 404
     except Exception as e:
         current_app.logger.error(f"Error loading config '{config_name}': {e}")

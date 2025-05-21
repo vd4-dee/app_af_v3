@@ -1,0 +1,18 @@
+{
+    "reports": [
+        {"id": "report1", "name": "Báo cáo bán hàng"},
+        {"id": "report2", "name": "Báo cáo tồn kho"},
+        {"id": "report3", "name": "Báo cáo tài chính"}
+    ],
+    "regions": [
+        {"id": "north", "name": "Miền Bắc"},
+        {"id": "central", "name": "Miền Trung"},
+        {"id": "south", "name": "Miền Nam"}
+    ],
+    "defaults": {
+        "period_month": 5,
+        "period_year": 2025,
+        "start_date": "2025-01-01",
+        "end_date": "2025-12-31"
+    }
+}

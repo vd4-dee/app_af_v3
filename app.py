@@ -6,6 +6,7 @@ import logging
 import json
 import traceback
 import logging.handlers
+from datetime import datetime, timezone, timedelta
 
 from flask import (
     Flask, render_template, request, jsonify, Response,
@@ -52,6 +53,11 @@ def create_app(config_object_name='config.Config'):
     """
     app = Flask(__name__, instance_relative_config=True)
 
+    # Initialize thread lock for thread-safe operations
+    app.lock = threading.Lock()
+    app.status_messages = []  # Initialize status_messages list
+    app.shared_state = shared_app_state # Attach shared_app_state to the app object
+
     # 1. Load Configuration
     # ---------------------
     app.config.from_object(config_object_name)
@@ -61,6 +67,14 @@ def create_app(config_object_name='config.Config'):
     # 2. Initialize Extensions
     # ------------------------
     db.init_app(app) # Gắn SQLAlchemy vào app
+    
+    # Configure session
+    app.config.update(
+        SESSION_COOKIE_SECURE=False,  # Set to True in production with HTTPS
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE='Lax',
+        PERMANENT_SESSION_LIFETIME=86400  # 1 day in seconds
+    )
 
     # 3. Initialize Global Objects/State tied to App Context (nếu cần)
     # -------------------------------------------------------------
@@ -139,6 +153,9 @@ def create_app(config_object_name='config.Config'):
             # scheduler.add_jobstore(SQLAlchemyJobStore(url=app.config['SQLALCHEMY_DATABASE_URI']), 'default_db')
             scheduler.start(paused=False)
             app.logger.info("APScheduler đã khởi động.")
+            # Attach scheduler to app context
+            app.scheduler = scheduler 
+            app.logger.info("APScheduler attached to Flask app context.")
             # Đảm bảo scheduler được tắt khi ứng dụng thoát
             atexit.register(lambda: scheduler.shutdown())
             app.logger.info("Đã đăng ký hook tắt APScheduler.")
@@ -149,18 +166,21 @@ def create_app(config_object_name='config.Config'):
 
     # 7. Register Blueprints
     # --------------------
-    # Import blueprint ở đây để tránh circular import
-    from blueprints.email.routes_email import email_bp as email_ui_bp # Giả sử file này tồn tại
+    # Import blueprints here to avoid circular imports
+    from blueprints.download import download_bp
+    from blueprints.email import init_email
     from blueprints.email.api import api_email_bp
-    from blueprints.email.api_templates import templates_api_bp
-
-    from blueprints.download import download_bp # Giả sử file này chứa blueprint cho download
-    # from blueprints.auth import auth_bp # Nếu bạn có blueprint cho xác thực
-
-    app.register_blueprint(email_ui_bp, url_prefix='/email') # url_prefix cho UI email
-    app.register_blueprint(api_email_bp) # prefix đã được định nghĩa trong blueprint
-    app.register_blueprint(templates_api_bp) # prefix đã được định nghĩa trong blueprint
-    app.register_blueprint(download_bp, url_prefix='/download') # url_prefix cho download
+    from blueprints.email import api_templates
+    
+    # Initialize email blueprint with the app
+    # This will register the email_bp blueprint
+    init_email(app)
+    
+    # Register other blueprints with proper URL prefixes
+    # Note: email_bp is already registered by init_email()
+    app.register_blueprint(api_email_bp)  # Already has /api/email prefix defined in the blueprint
+    app.register_blueprint(api_templates.templates_api_bp, url_prefix='/api/email')
+    app.register_blueprint(download_bp, url_prefix='/download')
     # app.register_blueprint(auth_bp, url_prefix='/auth')
 
     # 8. Define Basic Routes (Login, Logout, Index, Docs)
@@ -168,24 +188,53 @@ def create_app(config_object_name='config.Config'):
     @app.route('/login', methods=['GET', 'POST'])
     def login():
         if request.method == 'POST':
-            username = request.form.get('username')
+            email = request.form.get('email')
             password = request.form.get('password')
-            if not username or not password:
-                flash('Vui lòng nhập tên đăng nhập và mật khẩu.', 'warning')
+            app.logger.debug(f"Login attempt - Email: {email}, Password: {'*' * len(password) if password else 'None'}")
+            
+            if not email or not password:
+                flash('Vui lòng nhập email và mật khẩu.', 'warning')
                 return render_template('login.html', title="Đăng nhập")
 
-            user_info = auth_google_sheet.verify_user(username, password)
-            if user_info:
-                session['user'] = username
-                session['role'] = user_info.get('role', 'user') # Mặc định là 'user' nếu không có role
-                session['web_access'] = user_info.get('web_access', False)
+            # Verify user credentials
+            credentials_valid = auth_google_sheet.check_user_credentials(email, password)
+            app.logger.debug(f"Credentials valid: {credentials_valid}")
+            
+            if credentials_valid:
+                # Get additional user info
+                user_info = auth_google_sheet.get_user_auth_data(email) or {}
+                app.logger.debug(f"User info from Google Sheet: {user_info}")
+                
+                # Default permissions if not specified
+                if not user_info.get('permissions') and user_info.get('role') == 'owner':
+                    user_info['permissions'] = ['all']  # Grant all permissions to owners by default
+                
+                # Set up session
+                session.permanent = True
+                session['user'] = email
+                session['role'] = user_info.get('role', 'user')
+                # Set web_access to True if user has any permissions or is an owner
+                has_permissions = bool(user_info.get('permissions')) or user_info.get('role') == 'owner'
+                session['web_access'] = has_permissions
                 session['logged_in_time'] = datetime.now(timezone.utc).isoformat()
-                app.logger.info(f"Người dùng '{username}' đăng nhập thành công với vai trò '{session['role']}'.")
-                flash(f'Chào mừng {username}!', 'success')
-                return redirect(url_for('index'))
+                
+                app.logger.info(f"Session after login: {dict(session)}")
+                app.logger.info(f"User '{email}' logged in with role '{session['role']}' and web_access: {has_permissions}")
+                
+                # Debug: Check session before redirect
+                app.logger.debug(f"Session before redirect: {dict(session)}")
+                
+                response = redirect(url_for('index'))
+                app.logger.debug(f"Response headers: {response.headers}")
+                
+                flash(f'Chào mừng {email}!', 'success')
+                return response
             else:
-                flash('Tên đăng nhập hoặc mật khẩu không đúng.', 'danger')
-                app.logger.warning(f"Đăng nhập thất bại cho người dùng '{username}'.")
+                flash('Email hoặc mật khẩu không đúng.', 'danger')
+                app.logger.warning(f"Đăng nhập thất bại cho email '{email}'.")
+                
+        # For GET requests or failed logins
+        app.logger.debug("Rendering login page")
         return render_template('login.html', title="Đăng nhập")
 
     @app.route('/logout')
@@ -200,23 +249,81 @@ def create_app(config_object_name='config.Config'):
 
     @app.route('/')
     def index():
-        if 'user' not in session or not session.get('web_access'):
+        app.logger.debug(f"Index route - Session data: {dict(session)}")
+        app.logger.debug(f"Request headers: {dict(request.headers)}")
+        
+        if 'user' not in session:
+            app.logger.warning("No user in session, redirecting to login")
             flash('Vui lòng đăng nhập để truy cập.', 'warning')
             return redirect(url_for('login'))
+        
+        # Get fresh user info from the database
+        user_info = auth_google_sheet.get_user_auth_data(session['user']) or {}
+        
+        # Update session with fresh data
+        if user_info:
+            session['role'] = user_info.get('role', 'user')
+            session['user_role'] = user_info.get('role', 'user')  # For template
+            session['user_permissions'] = user_info.get('permissions', []) or []  # Ensure it's a list
+            has_permissions = bool(user_info.get('permissions')) or user_info.get('role') == 'owner'
+            session['web_access'] = has_permissions
+            app.logger.debug(f"Updated session with fresh data: {dict(session)}")
+            app.logger.debug(f"User permissions: {session.get('user_permissions')}")
+        
+        if not session.get('web_access'):
+            app.logger.warning(f"User {session.get('user')} with role {session.get('role')} does not have web access")
+            app.logger.warning(f"User info from DB: {user_info}")
+            flash('Tài khoản của bạn không có quyền truy cập. Vui lòng liên hệ quản trị viên.', 'danger')
+            return redirect(url_for('login'))
 
+        app.logger.debug(f"User {session.get('user')} with role {session.get('role')} accessing index with web_access: {session.get('web_access')}")
+        
         # Lấy các giá trị mặc định từ config.py (nên được load vào app.config)
         # Ví dụ: app.config.get('DEFAULT_PERIOD_MONTH'), app.config.get('DEFAULT_PERIOD_YEAR')
-        default_config = load_legacy_configs(current_app.config.get('LEGACY_CONFIG_FILE_PATH',
-                                            os.path.join(current_app.instance_path, 'configs.json')))
+        try:
+            # Set the config file path in the app config if not already set
+            if 'CONFIG_FILE_PATH' not in current_app.config:
+                current_app.config['CONFIG_FILE_PATH'] = os.path.join(
+                    current_app.instance_path, 'configs.json'
+                )
+            # Load configs using the function that reads from current_app.config
+            default_config = load_legacy_configs()
+            app.logger.debug(f"Loaded default config: {default_config}")
+        except Exception as e:
+            app.logger.error(f"Error loading config: {e}")
+            default_config = {}
+        # Get download configuration
+        download_config = {}
+        try:
+            # Load download configuration from file or database
+            download_config_path = os.path.join(current_app.instance_path, 'download_config.json')
+            if os.path.exists(download_config_path):
+                with open(download_config_path, 'r', encoding='utf-8') as f:
+                    download_config = json.load(f)
+        except Exception as e:
+            app.logger.error(f"Error loading download config: {e}")
+            download_config = {}
+            
+        # Ensure default values for required fields
+        if 'reports' not in download_config:
+            download_config['reports'] = []
+        if 'regions' not in download_config:
+            download_config['regions'] = []
+            
+        app.logger.debug(f"Serving index with download config: {download_config}")
+        
         return render_template(
             'index.html',
             title="Trang chủ",
             username=session.get('user'),
             role=session.get('role'),
+            user_role=session.get('user_role'),
+            user_permissions=session.get('user_permissions', []),
             default_period_month=default_config.get('DEFAULT_PERIOD_MONTH', datetime.now().month),
             default_period_year=default_config.get('DEFAULT_PERIOD_YEAR', datetime.now().year),
             default_start_date=default_config.get('DEFAULT_START_DATE', (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')),
-            default_end_date=default_config.get('DEFAULT_END_DATE', datetime.now().strftime('%Y-%m-%d'))
+            default_end_date=default_config.get('DEFAULT_END_DATE', datetime.now().strftime('%Y-%m-%d')),
+            download_config=json.dumps(download_config)  # Pass as JSON string for JavaScript
         )
 
     @app.route('/docs/')

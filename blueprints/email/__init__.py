@@ -8,10 +8,11 @@ def init_email(app):
     # Import routes here to avoid circular imports
     from . import routes_email
     from . import api
-    from . import api_templates
     
-    # Register blueprints
+    # Register the main email blueprint
     app.register_blueprint(email_bp)
-    app.register_blueprint(api_templates.templates_bp, url_prefix='/api/email')
+    
+    # Note: api_templates.templates_api_bp is registered in app.py
+    # to properly handle URL prefixes and avoid duplicate registration
     
     return app
