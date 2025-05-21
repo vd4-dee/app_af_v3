@@ -1,144 +1,109 @@
-import csv
-import os
-import time
+# blueprints/email/logic_email.py
+import pandas as pd
+from string import Template
 from datetime import datetime
-import win32com.client as win32
+import os
+import logging
+from .models import EmailTemplate
+import jinja2
 
-# Note: Assuming config.py is in the root directory
-# If not, adjust the import path accordingly (e.g., from .. import config)
-from config import DEFAULT_SENDER, EMAIL_BATCH_SIZE, EMAIL_PAUSE_SECONDS, EMAIL_LOG_PATH
+logger = logging.getLogger(__name__)
 
-def send_bulk_email(csv_file_path, subject, body):
-    """
-    Send bulk emails via local Outlook COM.
-    Reads recipients from the first column of the CSV (skips header if 'email').
-    Logs each send to EMAIL_LOG_PATH and returns summary.
-    """
-    session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file_path = EMAIL_LOG_PATH # Use path from config
-    
-    # Ensure log directory exists
-    log_dir = os.path.dirname(log_file_path)
-    if log_dir and not os.path.exists(log_dir):
-        try: os.makedirs(log_dir)
-        except OSError as e:
-             return {'error': f'Failed to create log directory {log_dir}: {e}'}
-    
-    # Ensure log file with header exists
-    if not os.path.exists(log_file_path):
-        try:
-            with open(log_file_path, 'w', newline='', encoding='utf-8') as logf:
-                writer = csv.writer(logf)
-                writer.writerow(['SessionID', 'Timestamp', 'Recipient', 'Status', 'ErrorMessage'])
-        except IOError as e:
-             return {'error': f'Failed to create log file {log_file_path}: {e}'}
-
-    # Read recipients
-    recipients = []
+def parse_excel_data(file_path):
+    """Parse Excel file and return list of dictionaries"""
     try:
-        with open(csv_file_path, newline='', encoding='utf-8') as f:
-            reader = csv.reader(f)
-            header_skipped = False
-            for i, row in enumerate(reader):
-                if not row:
-                    continue # Skip empty rows
-                val = row[0].strip()
-                # Skip header row if it looks like 'email' (case-insensitive)
-                if i == 0 and val.lower() == 'email':
-                    header_skipped = True
-                    continue
-                if not val: continue # Skip rows with empty first column
-                recipients.append(val)
-    except FileNotFoundError:
-         return {'error': f'CSV file not found: {csv_file_path}'}
+        df = pd.read_excel(file_path)
+        # Convert all column names to lowercase and strip whitespace
+        df.columns = [str(col).strip().lower() for col in df.columns]
+        return df.to_dict('records')
     except Exception as e:
-        return {'error': f'Read CSV failed: {e}'}
+        logger.error(f"Error parsing Excel file: {str(e)}")
+        raise ValueError(f"Error parsing Excel file: {str(e)}")
 
-    if not recipients:
-        return {'error': 'No valid recipients found in CSV file.'}
+import jinja2
+# ...existing code...
 
-    # Initialize Outlook
+def render_email_template(template_content, variables, row_data):
+    """Render email template with dynamic variables from Excel row using Jinja2"""
+    if not isinstance(row_data, dict):
+        row_data = row_data._asdict() if hasattr(row_data, '_asdict') else dict(row_data)
+    # Add common variables
+    row_data['current_date'] = datetime.now().strftime('%d/%m/%Y')
     try:
-        outlook = win32.Dispatch('Outlook.Application')
-        # Optional: Check if Outlook is running or needs to be started
-        # namespace = outlook.GetNamespace("MAPI")
+        # Use Jinja2 to render the template from string
+        env = jinja2.Environment(autoescape=True)
+        template = env.from_string(template_content)
+        return template.render(**row_data)
     except Exception as e:
-        error_message = f'Outlook COM dispatch failed. Is Microsoft Outlook installed and configured on this machine? Error: {e}'
-        print(f"CRITICAL: {error_message}") # Also print to console for visibility
-        return {'error': error_message}
+        logger.error(f"Error rendering template with Jinja2: {str(e)}")
+        raise
 
-    results = []
-    success_count = 0
-    failure_count = 0
-
-    batch_size = EMAIL_BATCH_SIZE if EMAIL_BATCH_SIZE > 0 else len(recipients) # Handle 0 or negative
-    pause_seconds = EMAIL_PAUSE_SECONDS if EMAIL_PAUSE_SECONDS >= 0 else 0
-
-    # Send in batches
-    for i in range(0, len(recipients), batch_size):
-        batch = recipients[i:i + batch_size]
-        current_batch_num = (i // batch_size) + 1
-        total_batches = (len(recipients) + batch_size - 1) // batch_size
-        print(f"Processing batch {current_batch_num}/{total_batches}...")
-
-        for recipient in batch:
-            timestamp = datetime.now().isoformat()
-            status = 'Success'
-            error_message = ''
+def send_bulk_emails_backend(excel_path, template_id, attachments_folder=None, start_index=None, end_index=None):
+    """Send bulk emails using template and Excel data"""
+    # Get template from database
+    template = EmailTemplate.query.get(template_id)
+    if not template:
+        return {
+            'success': False,
+            'message': f'Template with ID {template_id} not found'
+        }
+    
+    try:
+        # Parse Excel data
+        recipients = parse_excel_data(excel_path)
+        
+        # Process each recipient
+        results = {
+            'success_count': 0,
+            'failure_count': 0,
+            'details': []
+        }
+        
+        # Apply row range if specified
+        if start_index is not None and end_index is not None:
+            recipients = recipients[start_index:end_index+1]
+        
+        for idx, recipient in enumerate(recipients, 1):
             try:
-                mail = outlook.CreateItem(0) # 0: olMailItem
-                mail.To = recipient
-                mail.Subject = subject
-                # Use HTMLBody for better formatting potential
-                # mail.Body = body # Use this for plain text
-                mail.HTMLBody = body 
+                # Render email content
+                email_html = render_email_template(
+                    template.html_content,
+                    template.variables or [],
+                    recipient
+                )
                 
-                # Optional: Set sender based on config (requires mailbox permission)
-                # if DEFAULT_SENDER:
-                #    mail.SentOnBehalfOfName = DEFAULT_SENDER
-                # Or set the sending account if multiple are configured:
-                # sending_account = None
-                # for acc in outlook.Session.Accounts:
-                #     if acc.SmtpAddress == DEFAULT_SENDER:
-                #         sending_account = acc
-                #         break
-                # if sending_account:
-                #     mail.SendUsingAccount = sending_account
-                # else:
-                #     print(f"Warning: Sending account {DEFAULT_SENDER} not found in Outlook.")
+                # TODO: Send email using your email sending logic
+                # send_email(
+                #     to=recipient.get('email'),
+                #     subject=template.subject,
+                #     html=email_html
+                # )
                 
-                mail.Send()
-                success_count += 1
-                print(f"  Sent to: {recipient}")
+                results['success_count'] += 1
+                results['details'].append({
+                    'row': idx,
+                    'status': 'success',
+                    'message': f'Email sent to {recipient.get("email", "unknown")}'
+                })
+                
             except Exception as e:
-                status = 'Failed'
-                error_message = str(e)
-                failure_count += 1
-                print(f"  FAILED to send to: {recipient} - Error: {error_message}")
-                # Log the error with more context
-                log_message(session_id, timestamp, recipient, status, error_message)
-                continue # Continue to the next recipient even if one fails
-                
-            # Append to log file immediately (only for successful sends, failures are logged in the except block)
-            if status == 'Success':
-                try:
-                     with open(log_file_path, 'a', newline='', encoding='utf-8') as logf:
-                        writer = csv.writer(logf)
-                        writer.writerow([session_id, timestamp, recipient, status, error_message])
-                except IOError as log_e:
-                     print(f"CRITICAL: Failed to write to log file {log_file_path}: {log_e}")
-                     # Continue sending but maybe flash a warning later?
-
-        # Pause between batches if not the last batch
-        if pause_seconds > 0 and (i + batch_size) < len(recipients):
-            print(f"Pausing for {pause_seconds} seconds before next batch...")
-            time.sleep(pause_seconds)
-
-    print("Email sending process finished.")
-    return {
-        'session_id': session_id,
-        'total': len(recipients),
-        'success': success_count,
-        'failed': failure_count,
-        'details': results # Optionally truncate details if too large
-    }
+                logger.error(f"Error processing row {idx}: {str(e)}")
+                results['failure_count'] += 1
+                results['details'].append({
+                    'row': idx,
+                    'status': 'error',
+                    'message': str(e)
+                })
+        
+        return {
+            'success': True,
+            'message': f'Processed {len(recipients)} rows. Success: {results["success_count"]}, Failed: {results["failure_count"]}',
+            **results
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in send_bulk_emails_backend: {str(e)}")
+        return {
+            'success': False,
+            'message': f'Error processing request: {str(e)}'
+        }

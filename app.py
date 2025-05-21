@@ -18,7 +18,7 @@ from apscheduler.jobstores.memory import MemoryJobStore # type: ignore
 from apscheduler.triggers.date import DateTrigger # type: ignore
 from apscheduler.executors.pool import ThreadPoolExecutor # type: ignore
 from apscheduler.jobstores.base import JobLookupError # Keep for now
-
+from extensions import db
 # Local Imports
 import config
 # from logic_download import WebAutomation, regions_data, DownloadFailedException # Moved to blueprint
@@ -60,11 +60,9 @@ app.shared_state = shared_state # Attach the shared state dictionary
 # --- Import Blueprints AFTER app is created and configured ---
 from blueprints.email.routes_email import email_bp
 from blueprints.download import download_bp # Import the new download blueprint
-from blueprints.email import email_api  # Import the email API blueprint
 
 # --- Register Blueprints ---
 app.register_blueprint(email_bp, url_prefix='/email')
-app.register_blueprint(email_api, url_prefix='/api/email')  # Register email API routes
 app.register_blueprint(download_bp) # url_prefix='/download' is defined in the blueprint itself
 
 # --- Import Google Sheet Auth (AFTER app creation if needed) ---
@@ -188,10 +186,6 @@ def index():
 @app.route('/docs/')
 def docs_index():
     return send_from_directory('site', 'index.html')
-
-@app.route('/docs')
-def docs_html():
-    return render_template('docs.html')
 
 @app.route('/docs/<path:filename>')
 def docs_files(filename):

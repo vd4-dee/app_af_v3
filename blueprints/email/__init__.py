@@ -1,22 +1,17 @@
+# blueprints/email/__init__.py
 from flask import Blueprint
 
-# Blueprint for Email Module (web interface)
-email_bp = Blueprint(
-    'email', __name__,
-    template_folder='templates',
-    static_folder='static'
-)
+# Create blueprint without importing routes yet to avoid circular imports
+email_bp = Blueprint('email', __name__)
 
-# Blueprint for Email API endpoints
-email_api = Blueprint(
-    'email_api', __name__,
-    url_prefix='/api/email'
-)
-
-# Import and register routes
-from . import routes_email
-from . import logic_email
-from . import api
-
-# Initialize API routes
-api.init_email_api_routes(email_api)
+def init_email(app):
+    # Import routes here to avoid circular imports
+    from . import routes_email
+    from . import api
+    from . import api_templates
+    
+    # Register blueprints
+    app.register_blueprint(email_bp)
+    app.register_blueprint(api_templates.templates_bp, url_prefix='/api/email')
+    
+    return app

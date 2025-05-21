@@ -2,7 +2,7 @@ from . import email_bp
 from flask import render_template, request, redirect, url_for, flash, current_app
 import os
 import re
-from .logic_email import send_bulk_email
+from .logic_email import send_bulk_emails_backend
 from werkzeug.utils import secure_filename
 import tempfile
 
@@ -64,7 +64,7 @@ def bulk_email():
 
         try:
             file.save(filepath)
-            result = send_bulk_email(filepath, subject, body)
+            result = send_bulk_emails_backend(filepath, template_id=None)
         except Exception as e:
             current_app.logger.error(f"Error processing uploaded file or sending emails: {e}", exc_info=True)
             flash(f'An error occurred during processing: {e}', 'danger')

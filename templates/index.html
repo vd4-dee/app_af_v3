@@ -28,7 +28,7 @@
                 
                 {# Bulk Email - Requires 'email.bulk' or owner #}
                 {% if user_role == 'owner' or 'email.bulk' in user_permissions %}
-                <li><a href="#" class="sidebar-link" data-target="bulk-email-panel"><i class="fas fa-envelope sidebar-icon"></i> <span>Bulk Email</span></a></li>
+                <li><a href="{{ url_for('email.bulk_email') }}" class="sidebar-link"><i class="fas fa-envelope sidebar-icon"></i> <span>Bulk Email</span></a></li>
                 {% endif %}
                 
                 {# Schedule Download - Requires 'download.schedule' or owner #}
@@ -151,53 +151,6 @@
                 <h2>Progress Status</h2>
                 <div id="status-messages">
                     <p class="subtext">No activity yet.</p>
-                </div>
-            </div>
-        </div>
-
-        <div class="main-panel" id="bulk-email-panel" style="display: none;">
-            <h2>Bulk Email Sender</h2>
-            <p class="subtext">Configure and send emails to multiple recipients.</p>
-            {% with messages = get_flashed_messages(with_categories=true) %}
-                {% if messages %}
-                    <div class="flash-messages">
-                    {% for category, message in messages %}
-                        <div class="alert alert-{{ category }}">{{ message }}</div>
-                    {% endfor %}
-                    </div>
-                {% endif %}
-            {% endwith %}
-            <form id="bulk-email-form" method="POST" enctype="multipart/form-data" action="{{ url_for('email.bulk_email') }}">
-                <div class="form-group">
-                    <label for="scenario">Load Template (Optional):</label>
-                    <select id="scenario" name="scenario">
-                        <option value="">-- Select Template --</option>
-                        {% for key, template_info in templates.items() %}
-                            <option value="{{ key }}">{{ template_info.subject }}</option>
-                        {% endfor %}
-                    </select>
-                    <p class="subtext">Selecting a template will fill Subject and Body below.</p>
-                </div>
-                <div class="form-group">
-                    <label for="email-subject">Subject:</label>
-                    <input type="text" id="email-subject" name="subject" required>
-                </div>
-                <div class="form-group">
-                    <label for="email-body">Body:</label>
-                    <textarea id="email-body" name="body" rows="6" required></textarea>
-                </div>
-                <div class="form-group">
-                    <label for="email-list">Recipients List (CSV File):</label>
-                    <input type="file" id="email-list" name="email_list" accept=".csv" required>
-                    <p class="subtext">Upload a CSV file with emails in the first column.</p>
-                </div>
-                <button type="submit" id="send-email-button"><i class="fas fa-paper-plane"></i> Send Emails</button>
-                <span id="email-loading-indicator" style="display: none;">Sending... <i class="fas fa-spinner fa-spin"></i></span>
-            </form>
-            <div class="progress-status-block">
-                <h2>Email Sending Status</h2>
-                <div id="email-status-messages">
-                    <p class="subtext">No recent activity.</p>
                 </div>
             </div>
         </div>

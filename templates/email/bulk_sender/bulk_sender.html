@@ -1,0 +1,208 @@
+<!-- templates/email/bulk_sender/bulk_sender.html -->
+{% extends "email/bulk_sender/base.html" %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <!-- Sidebar for navigation -->
+        <div class="col-md-3 col-lg-2 d-md-block bg-light sidebar collapse">
+            <div class="position-sticky pt-3">
+                <ul class="nav flex-column">
+                    <li class="nav-item">
+                        <a class="nav-link active" href="#" id="compose-tab" data-bs-toggle="tab" data-bs-target="#compose">
+                            <i class="bi bi-send"></i> Compose
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" id="templates-tab" data-bs-toggle="tab" data-bs-target="#templates">
+                            <i class="bi bi-file-earmark-text"></i> Templates
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Main content -->
+        <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+            <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                <h1 class="h2">Bulk Email Sender</h1>
+            </div>
+
+            <div class="tab-content" id="emailTabsContent">
+                <!-- Compose Tab -->
+                <div class="tab-pane fade show active" id="compose" role="tabpanel">
+                    <div class="card">
+                        <div class="card-body">
+                            <form id="bulk-email-form">
+                                <div class="mb-3">
+                                    <label for="template-select" class="form-label">Select Template</label>
+                                    <select class="form-select" id="template-select">
+                                        <option value="">Select a template...</option>
+                                    </select>
+                                </div>
+
+                                <div id="template-preview" class="mb-3 p-3 border rounded" style="min-height: 100px; background-color: #f8f9fa;">
+                                    <p class="text-muted">Select a template to preview</p>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="excel-file" class="form-label">Upload Excel File</label>
+                                    <input class="form-control" type="file" id="excel-file" accept=".xlsx,.xls">
+                                    <div class="form-text">Excel file should contain email addresses and any template variables as columns.</div>
+                                </div>
+
+                                <div id="variable-mapping" class="mb-3" style="display: none;">
+                                    <h5>Variable Mapping</h5>
+                                    <div id="mapping-fields">
+                                        <!-- Will be populated by JavaScript -->
+                                    </div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="preview-before-send">
+                                        <label class="form-check-label" for="preview-before-send">
+                                            Preview before sending
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <button type="submit" class="btn btn-primary" id="send-emails-btn">
+                                    <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                                    Send Emails
+                                </button>
+                            </form>
+
+                            <!-- Progress bar -->
+                            <div id="progress-container" class="mt-3" style="display: none;">
+                                <div class="progress">
+                                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+                                </div>
+                                <div class="text-center mt-2" id="progress-text">Processing...</div>
+                            </div>
+
+                            <!-- Results -->
+                            <div id="results-card" class="card mt-3" style="display: none;">
+                                <div class="card-header">
+                                    <h5 class="mb-0">Results</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div id="results-summary"></div>
+                                    <div id="results-details" class="mt-3"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Templates Tab -->
+                <div class="tab-pane fade" id="templates" role="tabpanel">
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h5 class="card-title mb-0">Email Templates</h5>
+                                <button type="button" class="btn btn-primary btn-sm" id="new-template-btn">
+                                    <i class="bi bi-plus-lg"></i> New Template
+                                </button>
+                            </div>
+                            
+                            <div class="table-responsive">
+                                <table class="table table-hover" id="templates-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Name</th>
+                                            <th>Subject</th>
+                                            <th>Last Updated</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <!-- Will be populated by JavaScript -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+</div>
+
+<!-- Template Editor Modal -->
+<div class="modal fade" id="templateEditorModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="templateEditorModalLabel">Edit Template</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="template-form">
+                    <input type="hidden" id="template-id">
+                    <div class="mb-3">
+                        <label for="template-name" class="form-label">Template Name</label>
+                        <input type="text" class="form-control" id="template-name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="template-subject" class="form-label">Subject</label>
+                        <input type="text" class="form-control" id="template-subject" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Template Body</label>
+                        <div id="template-body" style="min-height: 300px; border: 1px solid #dee2e6; padding: 10px; outline: none;" contenteditable="true"></div>
+                        <div class="form-text">Use {{variable_name}} for dynamic content. Right-click for formatting options.</div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h6 class="mb-0">Available Variables</h6>
+                                </div>
+                                <div class="card-body" id="available-variables">
+                                    <p class="text-muted">Variables will appear here when you upload an Excel file</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <h6 class="mb-0">Preview</h6>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="refresh-preview">
+                                        <i class="bi bi-arrow-clockwise"></i> Refresh
+                                    </button>
+                                </div>
+                                <div class="card-body" id="template-preview">
+                                    <p class="text-muted">Preview will appear here</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="save-template">Save Template</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Preview Email Modal -->
+<div class="modal fade" id="previewEmailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Email Preview</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="email-preview-content">
+                <!-- Email preview will be loaded here -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
