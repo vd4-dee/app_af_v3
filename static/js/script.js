@@ -1,4 +1,4 @@
-// Import timer.js
+// Import các script cần thiết
 const timerScript = document.createElement('script');
 timerScript.src = 'static/js/timer.js';
 document.head.appendChild(timerScript);
@@ -341,100 +341,94 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     // --- Navigation & Panel Switching ---
     function resetBulkEmailPanel() {
-        // Reset form fields and status messages
-        const bulkEmailForm = document.getElementById('bulk-email-form');
-        const sendEmailButton = document.getElementById('send-email-button');
-        const emailLoadingIndicator = document.getElementById('email-loading-indicator');
-        const emailStatusMessagesDiv = document.getElementById('email-status-messages');
         if (bulkEmailForm) bulkEmailForm.reset();
+        if (emailStatusMessagesDiv) emailStatusMessagesDiv.innerHTML = '';
+        const fileInput = document.getElementById('email-file');
+        const fileLabel = document.querySelector('.file-upload-label');
+        if (fileInput) fileInput.value = '';
+        if (fileLabel) {
+            fileLabel.textContent = 'Choose file';
+            fileLabel.classList.remove('file-selected');
+        }
         if (sendEmailButton) sendEmailButton.disabled = false;
         if (emailLoadingIndicator) emailLoadingIndicator.style.display = 'none';
-        if (emailStatusMessagesDiv) {
-            emailStatusMessagesDiv.innerHTML = '<p class="subtext">No recent activity.</p>';
+    }
+
+    // Lắng nghe sự kiện chuyển tab
+    async function onPanelChanged(panelId) {
+        console.log('Panel changed to:', panelId);
+        
+        // Tải dữ liệu khi chuyển đến tab tương ứng
+        switch(panelId) {
+            case 'log-panel':
+                fetchLogs();
+                break;
+            case 'scheduling-panel':
+                fetchAndDisplaySchedules();
+                break;
+            case 'main-download-panel':
+                fetchAndPopulateReportData();
+                break;
+            case 'advanced-settings-panel':
+                await fetchAndPopulateAdvancedSettings();
+                break;
+            // Thêm các case khác nếu cần
         }
     }
 
+    // Get the toggle button for OTP visibility if it exists
+    const toggleOtpVisibilityBtn = document.getElementById('toggle-otp-visibility-adv');
+
+    // Toggle OTP visibility
+    if (toggleOtpVisibilityBtn && otpSecretInput) {
+        toggleOtpVisibilityBtn.addEventListener('click', function() {
+            const isHidden = otpSecretInput.type === 'password';
+            otpSecretInput.type = isHidden ? 'text' : 'password';
+            this.innerHTML = isHidden ? '<i class="fas fa-eye-slash"></i>' : '<i class="fas fa-eye"></i>';
+            this.setAttribute('aria-label', isHidden ? 'Hide OTP Secret' : 'Show OTP Secret');
+        });
+    }
+
+    // Đăng ký sự kiện khi DOM đã tải xong
+    document.addEventListener('DOMContentLoaded', () => {
+        // Lắng nghe sự kiện chuyển tab
+        window.addEventListener('panelChanged', (e) => {
+            onPanelChanged(e.detail.panelId);
+        });
+    });
+
     async function fetchAndPopulateAdvancedSettings() {
         try {
-            const data = await fetchData('/download/get-advanced-settings');
-            if (data) {
-                if (otpSecretInput) otpSecretInput.value = data.otp_secret || '';
-                if (driverPathInput) driverPathInput.value = data.driver_path || '';
-                if (downloadBasePathInput) downloadBasePathInput.value = data.download_base_path || '';
+            const response = await fetchData('/download/get-advanced-settings');
+            if (response && response.status === 'success') {
+                // Use the existing element references from the top of the file
+                if (otpSecretInput) otpSecretInput.value = response.otp_secret || '';
+                if (driverPathInput) driverPathInput.value = response.driver_path || '';
+                if (downloadBasePathInput) downloadBasePathInput.value = response.download_base_path || '';
+            } else {
+                showNotification('Failed to load advanced settings', 'error');
             }
         } catch (e) {
+            console.error('Error loading advanced settings:', e);
             showNotification('Failed to load advanced settings', 'error');
         }
     }
 
-    function switchPanel(targetId) {
-        console.log("Switching to panel:", targetId);
-        if (!targetId) return;
-        mainPanels.forEach(panel => panel.style.display = 'none');
-        // If switching to active downloads panel, refresh its content immediately
-        if (targetId === 'active-downloads-panel') {
-            renderActiveSessions();
-        }
-        sidebarLinks.forEach(link => link.classList.remove('active'));
-        const targetPanel = document.getElementById(targetId);
-        if (targetPanel) {
-            targetPanel.style.display = 'block';
-            const activeLink = document.querySelector(`#sidebar .sidebar-link[data-target="${targetId}"]`);
-            if (activeLink) {
-                activeLink.classList.add('active');
-                if (sectionTitleElement && activeLink.querySelector('span')) {
-                    sectionTitleElement.textContent = activeLink.querySelector('span').textContent;
+    // Sự kiện click được xử lý trong appState.js
+    document.addEventListener('click', (e) => {
+        const card = e.target.closest('.card[data-target]');
+        if (card) {
+            const targetId = card.getAttribute('data-target');
+            if (targetId) {
+                if (targetId.startsWith('http')) {
+                    window.location.href = targetId;
+                } else if (window.appState) {
+                    window.appState.switchPanel(targetId);
+                } else {
+                    console.error('AppState chưa được khởi tạo');
                 }
             }
-            if (document.getElementById('main-content')) {
-                document.getElementById('main-content').scrollTop = 0;
-            }
-            if (targetId === 'log-panel') {
-                fetchLogs();
-            }
-            if (targetId === 'scheduling-panel') {
-                fetchAndPopulateConfigs(); // Load configs for scheduling
-                fetchAndDisplaySchedules();
-            }
-            if (targetId === 'main-download-panel') {
-                // Ưu tiên khôi phục trạng thái bảng report nếu có
-                if (!restoreReportTableState()) {
-                    fetchAndPopulateReportData();
-                }
-                fetchAndPopulateConfigs(); // Load configs for download panel
-            }
-            if (targetId === 'bulk-email-panel') {
-                resetBulkEmailPanel();
-            }
-            if (targetId === 'advanced-settings-panel') {
-                fetchAndPopulateAdvancedSettings();
-            }
-        } else {
-            console.warn(`Panel with ID "${targetId}" not found.`);
-            document.getElementById('main-download-panel').style.display = 'block';
-            const defaultLink = document.querySelector(`#sidebar .sidebar-link[data-target="main-download-panel"]`);
-            if (defaultLink) defaultLink.classList.add('active');
-            if (sectionTitleElement && defaultLink.querySelector('span')) {
-                sectionTitleElement.textContent = defaultLink.querySelector('span').textContent;
-            }
-            fetchAndPopulateReportData();
-            fetchAndPopulateConfigs();
         }
-    }
-
-    sidebarLinks.forEach(link => {
-        link.addEventListener('click', (e) => {
-            const targetId = link.getAttribute('data-target');
-            // Only prevent default and switch panel if data-target exists
-            if (targetId) { 
-                e.preventDefault();
-                console.log("Sidebar link clicked (panel switch), target:", targetId);
-                switchPanel(targetId);
-            } else {
-                // Allow default link behavior (navigation) if no data-target
-                console.log("Sidebar link clicked (navigation), href:", link.href);
-            }
-        });
     });
 
     // Lưu trạng thái bảng report mỗi khi có thay đổi
@@ -1055,6 +1049,35 @@ document.addEventListener('DOMContentLoaded', () => {
         refreshLogButton.addEventListener('click', fetchLogs);
     }
 
+    // Save advanced settings
+    if (saveAdvancedSettingsButton) {
+        saveAdvancedSettingsButton.addEventListener('click', async () => {
+            const settings = {
+                otp_secret: otpSecretInput ? otpSecretInput.value : '',
+                driver_path: driverPathInput ? driverPathInput.value : '',
+                download_base_path: downloadBasePathInput ? downloadBasePathInput.value : ''
+            };
+
+            try {
+                const result = await fetchData('/download/save-advanced-settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(settings)
+                });
+                
+                if (result && result.status === 'success') {
+                    showNotification('Advanced settings saved successfully', 'success');
+                } else {
+                    const errorMsg = result?.message || 'Failed to save settings';
+                    showNotification(errorMsg, 'error');
+                }
+            } catch (error) {
+                console.error('Error saving advanced settings:', error);
+                showNotification('Failed to save advanced settings', 'error');
+            }
+        });
+    }
+
     if (saveConfigButton && configNameInput) {
         saveConfigButton.addEventListener('click', async () => {
             const configName = configNameInput.value.trim();
@@ -1243,6 +1266,14 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log("Running initial setup...");
     fetchAndPopulateReportData();
     fetchAndPopulateConfigs();
-    switchPanel('main-download-panel');
+    
+    // Use appState to switch to the main download panel
+    if (window.appState) {
+        window.appState.switchPanel('main-download-panel');
+    } else {
+        console.log("AppState not available yet, will switch panel when ready");
+        // If appState isn't ready yet, the panel will be switched when appState initializes
+    }
+    
     console.log("Initialization complete.");
 });

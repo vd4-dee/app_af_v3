@@ -22,41 +22,61 @@
 
     {# Assume template loading logic is moved to the route #}
     {# Or keep it here if templates are static and always loaded #}
-    <form id="bulk-email-form" method="POST" enctype="multipart/form-data" action="{{ url_for('email.bulk_email') }}">
-        {# CSRF token if using Flask-WTF #}
-        {# {{ form.hidden_tag() }} #}
+    <form id="bulk-email-form" method="POST" enctype="multipart/form-data" action="{{ url_for('email_api.api_send_bulk_emails') }}">
+        <div class="form-group">
+            <label for="excel-file">Excel File (Data Source):</label>
+            <input type="file" id="excel-file" name="excel_file" accept=".xlsx" required>
+            <p class="subtext">Excel file containing recipient data with columns: Name, To, CC, Title, Receiver, Tuxung, Is_New, Attachment, Attachment2</p>
+        </div>
         
         <div class="form-group">
-            <label for="scenario">Load Template (Optional):</label>
-            <select id="scenario" name="scenario">
-                <option value="">-- Select Template --</option>
-                {% for key, template_info in templates.items() %}
-                    <option value="{{ key }}">{{ template_info.subject }}</option>
-                {% endfor %}
+            <label for="html-file">Email Template (HTML):</label>
+            <select id="email-template" name="html_file" class="form-control" required>
+                <option value="">-- Chọn mẫu email --</option>
+                {# Provide relative paths that the backend can use #}
+                <option value="static/email_templates/kpi.asm.txt">KPI ASM</option>
+                <option value="static/email_templates/kpi.asm.torsm.txt">KPI ASM (Tổng kết RSM)</option>
+                <option value="static/email_templates/kpi.prsm.txt">KPI PRSM</option>
+                <option value="static/email_templates/kpi.rsm.txt">KPI RSM</option>
             </select>
-            <p class="subtext">Selecting a template will fill Subject and Body below.</p>
         </div>
 
         <div class="form-group">
-            <label for="email-subject">Subject:</label>
-            <input type="text" id="email-subject" name="subject" required>
+            <label for="attachments-folder">Attachments Folder:</label>
+            {# Provide a relative path for the attachments folder #}
+            <input type="text" id="attachments-folder" name="attachments_folder" value="static/attachments" required>
+            <p class="subtext">Path to the folder containing attachment files (relative to the application root)</p>
         </div>
+
         <div class="form-group">
-            <label for="email-body">Body:</label>
-            <textarea id="email-body" name="body" rows="6" required></textarea>
+            <label for="var-kibaocao">Kỳ Báo Cáo:</label>
+            <input type="text" id="var-kibaocao" name="var_kibaocao" required>
         </div>
+
         <div class="form-group">
-            <label for="email-list">Recipients List (CSV File):</label>
-            <input type="file" id="email-list" name="email_list" accept=".csv" required>
-            <p class="subtext">Upload a CSV file with emails in the first column.</p>
+            <label for="var-deadline">Deadline:</label>
+            <input type="datetime-local" id="var-deadline" name="var_deadline" required>
         </div>
-        {# Attachment functionality removed for simplicity, can be added back if needed #}
-        {# <div class="form-group">
-            <label for="email-attachment">Attachment (Optional):</label>
-            <input type="file" id="email-attachment" name="attachment">
-        </div> #}
-        <button type="submit" id="send-email-button"><i class="fas fa-paper-plane"></i> Send Emails</button>
-        <span id="email-loading-indicator" style="display: none;">Sending... <i class="fas fa-spinner fa-spin"></i></span>
+
+        <div class="form-group">
+            <label for="start-index">Start Index (optional):</label>
+            <input type="number" id="start-index" name="start_index" min="0">
+        </div>
+
+        <div class="form-group">
+            <label for="end-index">End Index (optional):</label>
+            <input type="number" id="end-index" name="end_index" min="0">
+        </div>
+
+        <button type="submit" id="send-email-button" class="btn btn-primary">
+            <i class="fas fa-paper-plane"></i> Send Bulk Emails
+        </button>
+        <div id="email-loading-indicator" style="display: none; margin-top: 10px;">
+            <div class="spinner-border spinner-border-sm" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <span>Sending emails... Please wait.</span>
+        </div>
     </form>
     <div class="progress-status-block">
         <h2>Email Sending Status</h2>
@@ -68,57 +88,186 @@
 
 {# Add JavaScript specifically for this page if needed #}
 <script>
-    // Script to load subject/body when a template is selected
-    const scenarioSelect = document.getElementById('scenario');
-    const subjectInput = document.getElementById('email-subject');
-    const bodyTextarea = document.getElementById('email-body');
-    // Safely get templates data, default to empty object if not provided or invalid
-    let emailTemplates = {};
-    try {
-        const templatesJson = JSON.parse('{{ templates|tojson|safe if templates else "{}" }}');
-        if (typeof templatesJson === 'object' && templatesJson !== null) {
-            emailTemplates = templatesJson;
+    document.addEventListener('DOMContentLoaded', function() {
+        const emailForm = document.getElementById('bulk-email-form');
+        const sendButton = document.getElementById('send-email-button');
+        const loadingIndicator = document.getElementById('email-loading-indicator');
+        const statusMessages = document.getElementById('email-status-messages');
+        
+        // Format datetime-local input to default to now + 1 day
+        const now = new Date();
+        now.setDate(now.getDate() + 1); // Set to tomorrow
+        now.setHours(17, 0, 0, 0); // Set to 5:00 PM
+        document.getElementById('var-deadline').value = now.toISOString().slice(0, 16);
+        
+        // Set default kỳ báo cáo to current month/year
+        const monthNames = ["Tháng 1", "Tháng 2", "Tháng 3", "Tháng 4", "Tháng 5", "Tháng 6",
+                          "Tháng 7", "Tháng 8", "Tháng 9", "Tháng 10", "Tháng 11", "Tháng 12"];
+        const today = new Date();
+        document.getElementById('var-kibaocao').value = 
+            `${monthNames[today.getMonth()]}/${today.getFullYear()}`;
+
+        // Function to add status message
+        function addStatusMessage(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `alert alert-${type} mb-2`;
+            messageDiv.innerHTML = `<strong>[${timestamp}]</strong> ${message}`;
+            statusMessages.insertBefore(messageDiv, statusMessages.firstChild);
+            
+            // Limit the number of messages to keep the UI clean
+            const maxMessages = 50;
+            while (statusMessages.children.length > maxMessages) {
+                statusMessages.removeChild(statusMessages.lastChild);
+            }
+            
+            return messageDiv;
         }
-    } catch (e) {
-        console.error("Error parsing email templates data:", e);
-    }
 
-    if (scenarioSelect && subjectInput && bodyTextarea) {
-        scenarioSelect.addEventListener('change', function() {
-            const selectedKey = this.value;
-            if (selectedKey && emailTemplates[selectedKey]) {
-                subjectInput.value = emailTemplates[selectedKey].subject || '';
-                bodyTextarea.value = emailTemplates[selectedKey].body || '';
-            } else {
-                // Optionally clear fields if no template selected or template not found
-                // subjectInput.value = '';
-                // bodyTextarea.value = '';
-            }
-        });
-    }
-    // Basic loading indicator simulation on form submit
-    const emailForm = document.getElementById('bulk-email-form');
-    const sendButton = document.getElementById('send-email-button');
-    const loadingIndicator = document.getElementById('email-loading-indicator');
-    const emailListInput = document.getElementById('email-list'); // Get file input
-    
-    if(emailForm && sendButton && loadingIndicator && subjectInput && bodyTextarea && emailListInput){
-        emailForm.addEventListener('submit', function(event){
-            // Basic validation (can be enhanced)
-            if(!subjectInput.value || !bodyTextarea.value || !emailListInput.files.length){
-                 // Prevent submission if basic validation fails, rely on HTML5 required attribute mostly
-                // event.preventDefault(); // Avoid preventing submission here, let browser handle required
-                console.warn("Form validation might be incomplete before submission.");
-                // Optionally add custom visual feedback here if needed
-                // return;
-            }
-            // Disable button and show indicator immediately if fields *seem* valid
-            // This provides better UX even if server-side validation fails later
-            sendButton.disabled = true;
-            loadingIndicator.style.display = 'inline-block';
-            // Server will redirect or re-render page after processing
-        });
-    }
-
+        if (emailForm && sendButton && loadingIndicator && statusMessages) {
+            emailForm.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                // Clear previous status
+                statusMessages.innerHTML = '';
+                
+                // Validate form
+                const excelFile = document.getElementById('excel-file').files[0];
+                const emailTemplate = document.getElementById('email-template').value;
+                const kyBaocao = document.getElementById('var-kibaocao').value.trim();
+                const deadline = document.getElementById('var-deadline').value;
+                
+                if (!excelFile) {
+                    addStatusMessage('Vui lòng chọn file Excel chứa dữ liệu người nhận', 'danger');
+                    return;
+                }
+                
+                if (!emailTemplate) {
+                    addStatusMessage('Vui lòng chọn mẫu email', 'danger');
+                    return;
+                }
+                
+                if (!kyBaocao) {
+                    addStatusMessage('Vui lòng nhập kỳ báo cáo', 'danger');
+                    return;
+                }
+                
+                if (!deadline) {
+                    addStatusMessage('Vui lòng chọn hạn chót', 'danger');
+                    return;
+                }
+                
+                // Disable form and show loading
+                sendButton.disabled = true;
+                loadingIndicator.style.display = 'block';
+                addStatusMessage('Đang bắt đầu quá trình gửi email...', 'info');
+                
+                const formData = new FormData(emailForm);
+                
+                try {
+                    const response = await fetch(emailForm.action, {
+                        method: 'POST',
+                        body: formData,
+                        headers: {
+                            'Accept': 'application/json'
+                        }
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (response.ok) {
+                        addStatusMessage(result.message, 'success');
+                        
+                        // Add download log file button if available
+                        if (result.log_file) {
+                            const downloadBtn = document.createElement('a');
+                            downloadBtn.href = result.log_file;
+                            downloadBtn.className = 'btn btn-sm btn-info mt-2';
+                            downloadBtn.innerHTML = '<i class="fas fa-download"></i> Tải file log';
+                            downloadBtn.download = '';
+                            
+                            const container = document.createElement('div');
+                            container.className = 'mt-2';
+                            container.appendChild(downloadBtn);
+                            
+                            const statusDiv = addStatusMessage('Nhấn vào nút bên dưới để tải file log', 'info');
+                            statusDiv.appendChild(container);
+                        }
+                    } else {
+                        addStatusMessage(`Lỗi: ${result.message || 'Có lỗi xảy ra khi gửi email'}`, 'danger');
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                    addStatusMessage(`Lỗi: ${error.message || 'Không thể gửi yêu cầu'}`, 'danger');
+                } finally {
+                    sendButton.disabled = false;
+                    loadingIndicator.style.display = 'none';
+                    
+                    // Scroll to bottom to show the latest status
+                    statusMessages.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                }
+            });
+        }
+        
+        // Add event listener for template selection to update preview
+        const templateSelect = document.getElementById('email-template');
+        if (templateSelect) {
+            templateSelect.addEventListener('change', function() {
+                // Here you could add a preview functionality if needed
+                console.log('Selected template:', this.value);
+            });
+        }
+    });
 </script>
-{% endblock %} 
+
+<style>
+    .progress-status-block {
+        margin-top: 2rem;
+        padding: 1.5rem;
+        background-color: #f8f9fa;
+        border-radius: 0.5rem;
+        border: 1px solid #dee2e6;
+    }
+    
+    .progress-status-block h2 {
+        margin-top: 0;
+        font-size: 1.5rem;
+        color: #333;
+    }
+    
+    #email-status-messages {
+        max-height: 300px;
+        overflow-y: auto;
+        margin-top: 1rem;
+        padding: 1rem;
+        background: white;
+        border-radius: 0.25rem;
+        border: 1px solid #dee2e6;
+    }
+    
+    .alert {
+        margin-bottom: 1rem;
+        padding: 0.75rem 1.25rem;
+        border: 1px solid transparent;
+        border-radius: 0.25rem;
+    }
+    
+    .alert-success {
+        color: #155724;
+        background-color: #d4edda;
+        border-color: #c3e6cb;
+    }
+    
+    .alert-danger {
+        color: #721c24;
+        background-color: #f8d7da;
+        border-color: #f5c6cb;
+    }
+    
+    .alert-info {
+        color: #0c5460;
+        background-color: #d1ecf1;
+        border-color: #bee5eb;
+    }
+</style>
+{% endblock %}

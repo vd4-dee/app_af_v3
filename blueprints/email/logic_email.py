@@ -63,7 +63,9 @@ def send_bulk_email(csv_file_path, subject, body):
         # Optional: Check if Outlook is running or needs to be started
         # namespace = outlook.GetNamespace("MAPI")
     except Exception as e:
-        return {'error': f'Outlook COM dispatch failed. Is Outlook installed and configured? Error: {e}'}
+        error_message = f'Outlook COM dispatch failed. Is Microsoft Outlook installed and configured on this machine? Error: {e}'
+        print(f"CRITICAL: {error_message}") # Also print to console for visibility
+        return {'error': error_message}
 
     results = []
     success_count = 0
@@ -113,17 +115,19 @@ def send_bulk_email(csv_file_path, subject, body):
                 error_message = str(e)
                 failure_count += 1
                 print(f"  FAILED to send to: {recipient} - Error: {error_message}")
+                # Log the error with more context
+                log_message(session_id, timestamp, recipient, status, error_message)
+                continue # Continue to the next recipient even if one fails
                 
-            # Record result
-            results.append({'recipient': recipient, 'status': status, 'error': error_message})
-            # Append to log file immediately
-            try:
-                 with open(log_file_path, 'a', newline='', encoding='utf-8') as logf:
-                    writer = csv.writer(logf)
-                    writer.writerow([session_id, timestamp, recipient, status, error_message])
-            except IOError as log_e:
-                 print(f"CRITICAL: Failed to write to log file {log_file_path}: {log_e}")
-                 # Continue sending but maybe flash a warning later?
+            # Append to log file immediately (only for successful sends, failures are logged in the except block)
+            if status == 'Success':
+                try:
+                     with open(log_file_path, 'a', newline='', encoding='utf-8') as logf:
+                        writer = csv.writer(logf)
+                        writer.writerow([session_id, timestamp, recipient, status, error_message])
+                except IOError as log_e:
+                     print(f"CRITICAL: Failed to write to log file {log_file_path}: {log_e}")
+                     # Continue sending but maybe flash a warning later?
 
         # Pause between batches if not the last batch
         if pause_seconds > 0 and (i + batch_size) < len(recipients):
@@ -137,4 +141,4 @@ def send_bulk_email(csv_file_path, subject, body):
         'success': success_count,
         'failed': failure_count,
         'details': results # Optionally truncate details if too large
-    } 
+    }

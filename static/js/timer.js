@@ -19,10 +19,10 @@ function updateTimerDisplay() {
     const timerDiv = document.getElementById('download-timer');
     if (!timerDiv || timerStartTime === null) return;
     const elapsed = Math.floor((Date.now() - timerStartTime) / 1000);
-    const min = Math.floor(elapsed / 60).toString().padStart(2, '0');
-    const sec = (elapsed % 60).toString().padStart(2, '0');
-    const hour = Math.floor(elapsed / 3600).toString().padStart(2, '0');
-    timerDiv.textContent = `⏱️ !-----------------------------Đang tải mà, chờ xíu-----------------------------!: ${hour}:${min}:${sec}`;
+    const min = Math.floor(elapsed / 60) % 60;
+    const sec = elapsed % 60;
+    const hour = Math.floor(elapsed / 3600);
+    timerDiv.textContent = `⏱️ !-----------------------------Đang tải mà, chờ xíu-----------------------------!: ${hour.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
 }
 
 function hideDownloadTimer() {

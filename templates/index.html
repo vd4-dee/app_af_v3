@@ -23,7 +23,7 @@
 
                 {# Download Reports (Index) - Requires 'web_access' or owner #}
                 {% if user_role == 'owner' or 'web_access' in user_permissions %}
-                <li><a href="{{ url_for('index') }}" class="sidebar-link {{ 'active' if request.endpoint == 'index' else '' }}" ><i class="fas fa-download sidebar-icon"></i> <span>Download Reports</span></a></li>
+                <li><a href="#" class="sidebar-link {% if request.endpoint == 'index' %}active{% endif %}" data-target="main-download-panel"><i class="fas fa-download sidebar-icon"></i> <span>Download Reports</span></a></li>
                 {% endif %}
                 
                 {# Bulk Email - Requires 'email.bulk' or owner #}
@@ -32,7 +32,6 @@
                 {% endif %}
                 
                 {# Schedule Download - Requires 'download.schedule' or owner #}
-                {# Assuming this still uses JS panel switching for now #}
                 {% if user_role == 'owner' or 'download.schedule' in user_permissions %}
                 <li><a href="#" class="sidebar-link" data-target="scheduling-panel"><i class="fas fa-calendar-alt sidebar-icon"></i> <span>Schedule Download</span></a></li>
                 {% endif %}
@@ -51,6 +50,9 @@
                 {% if user_role == 'owner' %}
                 <li><a href="#" class="sidebar-link" data-target="advanced-settings-panel"><i class="fas fa-cog sidebar-icon"></i> <span>Advanced Settings</span></a></li>
                 {% endif %}
+                
+                {# Help - Available to all authenticated users #}
+                <li><a href="#" id="show-help" class="sidebar-link"><i class="fas fa-question-circle sidebar-icon"></i> <span>Help</span></a></li>
             </ul>
         </nav>
     </aside>
@@ -62,47 +64,12 @@
         </div>
 
         <h1 id="section-title" class="main-title">{% block header %}Download Reports{% endblock %}</h1>
-        <section class="suggestion-cards">
-            <div class="card" data-target="main-download-panel">
-                <i class="fas fa-download card-icon"></i>
-                <div class="card-content">
-                    <h3 class="card-title">Download Reports</h3>
-                    <p class="card-description">Configure and download multiple reports.</p>
-                </div>
-                <button class="card-button">Open</button>
-            </div>
-            <!-- <div class="card" data-target="{{ url_for('email.bulk_email') }}">
-                <i class="fas fa-envelope-open-text card-icon"></i>
-                <div class="card-content">
-                    <h3 class="card-title">Bulk Email</h3>
-                    <p class="card-description">Send emails to multiple recipients.</p>
-                </div>
-                <a href="{{ url_for('email.bulk_email') }}" class="card-button">Open</a>
-            </div> -->
-            <div class="card" data-target="scheduling-panel">
-                <i class="fas fa-calendar-check card-icon"></i>
-                <div class="card-content">
-                    <h3 class="card-title">Schedule Download</h3>
-                    <p class="card-description">Set up automated report downloads.</p>
-                </div>
-                <button class="card-button">Open</button>
-            </div>
-            <div class="card" data-target="log-panel">
-                <i class="fas fa-clipboard-list card-icon"></i>
-                <div class="card-content">
-                    <h3 class="card-title">Download History</h3>
-                    <p class="card-description">View past download activities and logs.</p>
-                </div>
-                <button class="card-button">Open</button>
-            </div>
-        </section>
-
         <div class="main-panel" id="main-download-panel" style="display: block;">
             <div class="config-management-block">
                 <h2>Configuration Management</h2>
                 <div class="form-group">
                     <label for="config-name">Configuration Name:</label>
-                    <input type="text" id="config-name" placeholder="E.g., Monthly Reports">
+                    <input type="text" id="config-name" placeholder="E.g., Monthly Reports" pattern="[a-zA-Z0-9\s]+" title="Only English letters, numbers, and spaces are allowed">
                     <button id="save-config-button" title="Save the current settings below as a new configuration">Save Current Config</button>
                 </div>
                 <div class="form-group">
@@ -349,6 +316,171 @@
             <button id="save-advanced-settings" title="Save advanced settings"><i class="fas fa-save"></i> Save Settings</button>
         </div>
     </div>
+    <!-- Help Modal -->
+    <div id="help-modal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <div class="markdown-content">
+                {{ help_content|safe }}
+            </div>
+        </div>
+    </div>
+    
+    <style>
+        /* Modal styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.7);
+        }
+        .modal-content {
+            background-color: #fff;
+            margin: 5% auto;
+            padding: 30px;
+            border-radius: 8px;
+            max-width: 800px;
+            max-height: 80vh;
+            overflow-y: auto;
+            position: relative;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        .close {
+            position: absolute;
+            right: 20px;
+            top: 10px;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            color: #666;
+        }
+        .close:hover {
+            color: #000;
+        }
+        .markdown-content {
+            margin-top: 20px;
+            line-height: 1.7;
+            color: #333;
+        }
+        .markdown-content h1, 
+        .markdown-content h2, 
+        .markdown-content h3, 
+        .markdown-content h4 {
+            color: #2c3e50;
+            margin-top: 1.5em;
+            margin-bottom: 0.8em;
+            font-weight: 600;
+        }
+        .markdown-content h1 {
+            border-bottom: 2px solid #eee;
+            padding-bottom: 0.3em;
+        }
+        .markdown-content h2 {
+            border-bottom: 1px solid #f0f0f0;
+            padding-bottom: 0.2em;
+        }
+        .markdown-content ul, 
+        .markdown-content ol {
+            padding-left: 2em;
+            margin: 1em 0;
+        }
+        .markdown-content li {
+            margin-bottom: 0.5em;
+        }
+        .markdown-content code {
+            background-color: #f5f5f5;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.9em;
+            color: #c7254e;
+        }
+        .markdown-content pre {
+            background-color: #f8f8f8;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 1em;
+            overflow-x: auto;
+        }
+        .markdown-content pre code {
+            background-color: transparent;
+            padding: 0;
+            color: inherit;
+        }
+        .markdown-content a {
+            color: #3498db;
+            text-decoration: none;
+        }
+        .markdown-content a:hover {
+            text-decoration: underline;
+        }
+        .markdown-content table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 1.5em 0;
+        }
+        .markdown-content th, 
+        .markdown-content td {
+            border: 1px solid #ddd;
+            padding: 8px 12px;
+            text-align: left;
+        }
+        .markdown-content th {
+            background-color: #f5f5f5;
+            font-weight: 600;
+        }
+        .markdown-content blockquote {
+            border-left: 4px solid #ddd;
+            padding: 0 1em;
+            color: #666;
+            margin: 1em 0;
+        }
+    </style>
+    
+    <script>
+        // Help modal functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            var modal = document.getElementById("help-modal");
+            var btn = document.getElementById("show-help");
+            var span = document.getElementsByClassName("close")[0];
+
+            // When the user clicks the help link in the sidebar, open the modal
+            if (btn) {
+                btn.onclick = function(e) {
+                    e.preventDefault();
+                    modal.style.display = "block";
+                    return false;
+                }
+            }
+
+            // When the user clicks on (x), close the modal
+            if (span) {
+                span.onclick = function() {
+                    modal.style.display = "none";
+                }
+            }
+
+            // When the user clicks anywhere outside of the modal, close it
+            window.onclick = function(event) {
+                if (event.target == modal) {
+                    modal.style.display = "none";
+                }
+            }
+            
+            // Close modal with Escape key
+            document.addEventListener('keydown', function(event) {
+                if (event.key === 'Escape') {
+                    modal.style.display = 'none';
+                }
+            });
+        });
+    </script>
+    
     <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/appState.js') }}"></script>
 </body>
 </html>

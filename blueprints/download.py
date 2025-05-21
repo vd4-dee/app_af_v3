@@ -3,6 +3,19 @@ import threading
 import time
 import os
 import json
+import sys
+
+# Add the project root to the Python path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+# Add the parent directory to the Python path
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if parent_dir not in sys.path:
+    sys.path.append(parent_dir)
+
+from utils.config_manager import load_config_values, save_config_values
 import traceback
 from datetime import datetime, timezone, timedelta
 from apscheduler.jobstores.base import JobLookupError # type: ignore
@@ -20,7 +33,7 @@ import uuid
 import config
 import link_report
 from logic_download import WebAutomation, regions_data, DownloadFailedException # Added
-from utils import load_configs, save_configs, stream_status_update # Import from utils
+from utils_legacy import load_configs, save_configs, stream_status_update # Import from utils_legacy
 
 # --- Remove direct import from app --- 
 # from app import lock, status_messages, is_running 
@@ -692,11 +705,79 @@ def cancel_schedule(job_id):
 
 @download_bp.route('/get-advanced-settings', methods=['GET'])
 def get_advanced_settings():
-    return jsonify({
-        'otp_secret': getattr(config, 'OTP_SECRET', ''),
-        'driver_path': getattr(config, 'DRIVER_PATH', ''),
-        'download_base_path': getattr(config, 'DOWNLOAD_BASE_PATH', '')
-    })
+    try:
+        # Load current values from config file
+        config_values = load_config_values()
+        return jsonify({
+            'status': 'success',
+            'otp_secret': config_values.get('OTP_SECRET', ''),
+            'driver_path': config_values.get('DRIVER_PATH', ''),
+            'download_base_path': config_values.get('DOWNLOAD_BASE_PATH', '')
+        })
+    except Exception as e:
+        current_app.logger.error(f"Error getting advanced settings: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'Failed to load advanced settings: {str(e)}'
+        }), 500
+
+@download_bp.route('/save-advanced-settings', methods=['POST'])
+def save_advanced_settings():
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'status': 'error', 'message': 'No data provided'}), 400
+        
+        # Prepare the config values to save
+        config_values = {}
+        if 'otp_secret' in data:
+            config_values['OTP_SECRET'] = data['otp_secret']
+        if 'driver_path' in data:
+            config_values['DRIVER_PATH'] = data['driver_path']
+        if 'download_base_path' in data:
+            config_values['DOWNLOAD_BASE_PATH'] = data['download_base_path']
+        
+        # Get the config file path for permission check
+        from utils.config_manager import get_config_path
+        config_path = get_config_path()
+        
+        # Check if config file is writable
+        if not os.access(config_path, os.W_OK):
+            error_msg = f"No write permission for config file: {config_path}"
+            current_app.logger.error(error_msg)
+            return jsonify({
+                'status': 'error',
+                'message': error_msg
+            }), 403
+        
+        # Save the values to config file
+        success, message = save_config_values(config_values)
+        
+        if success:
+            # Update the running config
+            for key, value in config_values.items():
+                setattr(config, key, value)
+            
+            current_app.logger.info("Successfully updated advanced settings")
+            return jsonify({
+                'status': 'success',
+                'message': message
+            })
+        else:
+            current_app.logger.error(f"Failed to save config: {message}")
+            return jsonify({
+                'status': 'error',
+                'message': message
+            }), 500
+            
+    except Exception as e:
+        error_msg = f"Error saving advanced settings: {str(e)}"
+        current_app.logger.error(error_msg)
+        current_app.logger.error(traceback.format_exc())  # Log full traceback
+        return jsonify({
+            'status': 'error',
+            'message': error_msg
+        }), 500
 
 # --- Other necessary functions/logic for download ---
 # (Could add more helper functions specific to download here if needed)

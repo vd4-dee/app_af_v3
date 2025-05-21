@@ -1,6 +1,5 @@
-# filename: app.py
 import flask # type: ignore
-from flask import Flask, render_template, request, jsonify, Response, session, flash, redirect, url_for, current_app # Added current_app just in case
+from flask import Flask, render_template, request, jsonify, Response, session, flash, redirect, url_for, current_app, send_from_directory # Added send_from_directory
 import threading
 import time
 import csv
@@ -25,8 +24,8 @@ import config
 # from logic_download import WebAutomation, regions_data, DownloadFailedException # Moved to blueprint
 # import link_report # Moved to blueprint
 
-# Import utility functions
-from utils import load_configs, save_configs, stream_status_update
+# Import all utility functions from the legacy utils.py
+from utils_legacy import load_configs, save_configs, stream_status_update
 
 # --- Define Constants and Shared Globals BEFORE app creation ---
 CONFIG_FILE_PATH = os.path.join(os.path.dirname(__file__), 'configs.json')
@@ -61,9 +60,11 @@ app.shared_state = shared_state # Attach the shared state dictionary
 # --- Import Blueprints AFTER app is created and configured ---
 from blueprints.email.routes_email import email_bp
 from blueprints.download import download_bp # Import the new download blueprint
+from blueprints.email import email_api  # Import the email API blueprint
 
 # --- Register Blueprints ---
 app.register_blueprint(email_bp, url_prefix='/email')
+app.register_blueprint(email_api, url_prefix='/api/email')  # Register email API routes
 app.register_blueprint(download_bp) # url_prefix='/download' is defined in the blueprint itself
 
 # --- Import Google Sheet Auth (AFTER app creation if needed) ---
@@ -93,32 +94,51 @@ def login():
         else:
             flash('Invalid email or password.', 'danger') # Changed category for consistency
     # GET request or failed login
-    return render_template('login.html')
+    # Read the help content from the markdown file
+    help_content = ""
+    try:
+        with open(os.path.join(os.path.dirname(__file__), 'HUONG_DAN_SU_DUNG.md'), 'r', encoding='utf-8') as f:
+            help_content = f.read()
+    except Exception as e:
+        print(f"Error reading help file: {e}")
+        help_content = "# Help\n\nUnable to load help content. Please contact support."
+    
+    return render_template('login.html', help_content=help_content)
 
 @app.route('/change_password', methods=['GET', 'POST'])
 def change_password():
     if request.method == 'POST':
-        email = request.form['email']
-        old_password = request.form['old_password']
-        new_password = request.form['new_password']
-        if not (email and old_password and new_password):
-            flash('Please fill in all fields.')
-            return render_template('change_password.html')
-
-        if not check_user_credentials(email, old_password):
-             flash('Incorrect old password or email.')
-        return render_template('change_password.html')
-
         try:
-            update_user_password(email, new_password)
-            flash('Password changed successfully!')
-            return redirect(url_for('login'))
-        except ValueError as e:
-             flash(str(e))
-             return render_template('change_password.html')
+            email = request.form.get('email', '').strip()
+            old_password = request.form.get('old_password', '').strip()
+            new_password = request.form.get('new_password', '').strip()
+            
+            # Validate inputs
+            if not all([email, old_password, new_password]):
+                flash('Vui lòng điền đầy đủ thông tin.', 'error')
+                return render_template('change_password.html')
+                
+            # Check if new password meets requirements
+            if len(new_password) < 6:
+                flash('Mật khẩu mới phải có ít nhất 6 ký tự.', 'error')
+                return render_template('change_password.html')
+            
+            # Verify old credentials
+            if not check_user_credentials(email, old_password):
+                flash('Email hoặc mật khẩu cũ không chính xác.', 'error')
+                return render_template('change_password.html')
+            
+            # Update password
+            if update_user_password(email, new_password):
+                flash('Đổi mật khẩu thành công! Vui lòng đăng nhập lại.', 'success')
+                return redirect(url_for('login'))
+            else:
+                flash('Có lỗi xảy ra khi cập nhật mật khẩu. Vui lòng thử lại sau.', 'error')
+                
         except Exception as e:
-             flash(f'An error occurred: {e}')
-             return render_template('change_password.html')
+            current_app.logger.error(f"Error changing password: {str(e)}")
+            flash('Có lỗi xảy ra. Vui lòng thử lại sau.', 'error')
+            
     return render_template('change_password.html')
 
 @app.route('/logout')
@@ -144,14 +164,49 @@ def index():
         return redirect(url_for('login')) 
 
     import config
+    # Read the help content from the markdown file for the main app
+    help_content = ""
+    try:
+        with open(os.path.join(os.path.dirname(__file__), 'HUONG_DAN_SU_DUNG.md'), 'r', encoding='utf-8') as f:
+            help_content = f.read()
+    except Exception as e:
+        print(f"Error reading help file: {e}")
+        help_content = "# Help\n\nUnable to load help content. Please contact support."
+    
     return render_template(
         'index.html',
         templates={},
         default_email=getattr(config, 'DEFAULT_EMAIL', ''),
-        default_password=getattr(config, 'DEFAULT_PASSWORD', '')
+        default_password=getattr(config, 'DEFAULT_PASSWORD', ''),
+        default_otp_secret=getattr(config, 'OTP_SECRET', ''),
+        help_content=help_content,
+        default_driver_path=getattr(config, 'DRIVER_PATH', ''),
+        default_download_base_path=getattr(config, 'DOWNLOAD_BASE_PATH', '')
     )
 
-# --- Download Routes Moved to blueprints/download.py ---
+# --- MkDocs Documentation Integration ---
+@app.route('/docs/')
+def docs_index():
+    return send_from_directory('site', 'index.html')
+
+@app.route('/docs')
+def docs_html():
+    return render_template('docs.html')
+
+@app.route('/docs/<path:filename>')
+def docs_files(filename):
+    import os
+    full_path = os.path.join('site', filename)
+    # Nếu là thư mục (ví dụ: /docs/usage/) thì trả về index.html trong thư mục đó
+    if os.path.isdir(full_path):
+        return send_from_directory(full_path, 'index.html')
+    # Nếu là file tĩnh (css/js/...) thì trả về file đó
+    if os.path.isfile(full_path):
+        return send_from_directory('site', filename)
+    # Nếu là thư mục nhưng thiếu dấu / ở cuối, chuyển hướng cho đúng
+    if os.path.isdir(full_path + '/'):
+        return redirect(f'/docs/{filename}/')
+    return flask.abort(404)
 
 # --- Main Execution ---
 if __name__ == '__main__':
