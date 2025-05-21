@@ -1,128 +1,266 @@
-$(document).ready(function() {
-    // Load templates for dropdown
+// static/js/email/bulk_sender/main.js
+
+document.addEventListener('DOMContentLoaded', function() {
+    const bulkEmailForm = document.getElementById('bulk-email-form');
+    const excelFileImport = document.getElementById('excel-file-import'); // Nút "Chọn File Excel" tùy chỉnh
+    const excelFileInput = document.getElementById('excel-file'); // Input file thực sự
+    const excelFileNameDisplay = document.getElementById('excel-file-name');
+    const emailTemplateSelect = document.getElementById('email-template');
+    const previewTemplateButton = document.getElementById('preview-template');
+    const templatePreviewArea = document.getElementById('template-preview-area');
+    const columnMappingArea = document.getElementById('column-mapping-area');
+    const resultsArea = document.getElementById('results-area');
+    const loadingIndicator = document.getElementById('loading-indicator'); // Thêm spinner/loading
+
+    // --- Load Email Templates ---
     function loadDynamicTemplates() {
-        $.get('/api/email/templates')
-            .done(function(templates) {
-                const $select = $('#email-template');
-                $select.empty().append('<option value="">-- Chọn mẫu email --</option>');
-                templates.forEach(function(template) {
-                    $select.append(`<option value="${template.id}">${template.name}</option>`);
+        // templates.js có thể đã được load và có hàm getTemplates()
+        if (typeof getTemplates === 'function') {
+            getTemplates() // Hàm này từ templates.js gọi API /api/email/templates
+                .then(templates => {
+                    emailTemplateSelect.innerHTML = '<option value="">-- Chọn mẫu email --</option>';
+                    if (templates && templates.length > 0) {
+                        templates.forEach(template => {
+                            const option = document.createElement('option');
+                            option.value = template.id; // Giả sử template có id
+                            option.textContent = template.name; // Và name
+                            emailTemplateSelect.appendChild(option);
+                        });
+                    } else {
+                        emailTemplateSelect.innerHTML = '<option value="">-- Không có mẫu nào --</option>';
+                    }
+                })
+                .catch(error => {
+                    console.error('Lỗi tải danh sách mẫu email:', error);
+                    emailTemplateSelect.innerHTML = '<option value="">-- Lỗi tải mẫu --</option>';
+                    resultsArea.innerHTML = `<p class="text-danger">Không thể tải danh sách mẫu email. Vui lòng thử lại.</p>`;
                 });
-            })
-            .fail(function() {
-                $('#email-template').html('<option value="">(Lỗi tải danh sách mẫu)</option>');
-            });
+        } else {
+            console.warn('Hàm getTemplates không tồn tại. Kiểm tra file templates.js');
+            resultsArea.innerHTML = `<p class="text-warning">Chức năng tải mẫu email động chưa sẵn sàng.</p>`;
+        }
     }
 
-    // Load Excel headers when file selected
-    $('#excel-file').on('change', function(e) {
-        const file = e.target.files[0];
-        if (!file) return;
+    // --- Handle Excel File Input and Header Extraction ---
+    if (excelFileImport && excelFileInput) {
+        excelFileImport.addEventListener('click', function() {
+            excelFileInput.click(); // Kích hoạt input file ẩn
+        });
+
+        excelFileInput.addEventListener('change', function() {
+            if (excelFileInput.files.length > 0) {
+                const file = excelFileInput.files[0];
+                excelFileNameDisplay.textContent = file.name; // Hiển thị tên file
+                extractHeaders(file);
+            } else {
+                excelFileNameDisplay.textContent = 'Chưa chọn file nào';
+                columnMappingArea.innerHTML = ''; // Xóa mapping nếu không có file
+            }
+        });
+    }
+
+    function extractHeaders(file) {
         const formData = new FormData();
-        formData.append('file', file);
-        $.ajax({
-            url: '/api/email/extract-headers',
-            type: 'POST',
-            data: formData,
-            processData: false,
-            contentType: false,
-            success: function(res) {
-                if (res.success && res.headers) {
-                    $('#excel-headers-block').html('<b>Các biến từ Excel:</b> ' + res.headers.map(h=>`<code>{{${h}}}</code>`).join(' '));
-                } else {
-                    $('#excel-headers-block').html('<span class="text-danger">Không đọc được biến từ file Excel!</span>');
+        formData.append('excel_file', file);
+        showLoading(true, "Đang đọc tiêu đề Excel...");
+
+        fetch('/api/email/get-excel-headers', {
+            method: 'POST',
+            body: formData,
+            // headers: { 'Authorization': 'Bearer ' + localStorage.getItem('access_token') } // Nếu có auth
+        })
+        .then(response => {
+            if (!response.ok) {
+                return response.json().then(err => { throw new Error(err.message || `Lỗi ${response.status}`) });
+            }
+            return response.json();
+        })
+        .then(data => {
+            showLoading(false);
+            if (data.success && data.headers) {
+                displayColumnMappingUI(data.headers);
+            } else {
+                resultsArea.innerHTML = `<p class="text-danger">Lỗi lấy tiêu đề từ Excel: ${data.message || 'Không rõ lỗi'}</p>`;
+                columnMappingArea.innerHTML = '';
+            }
+        })
+        .catch(error => {
+            showLoading(false);
+            console.error('Lỗi khi lấy tiêu đề Excel:', error);
+            resultsArea.innerHTML = `<p class="text-danger">Lỗi khi xử lý file Excel: ${error.message}. Vui lòng kiểm tra định dạng file.</p>`;
+            columnMappingArea.innerHTML = '';
+        });
+    }
+
+    function displayColumnMappingUI(headers) {
+        // Hiển thị UI cho người dùng chọn cột email, cột đính kèm, etc.
+        // Ví dụ đơn giản: chỉ cần chọn cột chứa email
+        let html = `<div class="mb-3">
+                        <label for="email-column-name" class="form-label">Cột chứa địa chỉ Email:</label>
+                        <select id="email-column-name" class="form-select">`;
+        headers.forEach(header => {
+            // Tự động chọn cột có tên 'email' hoặc 'mail' nếu có
+            const selected = (header.toLowerCase() === 'email' || header.toLowerCase() === 'mail') ? 'selected' : '';
+            html += `<option value="${header}" ${selected}>${header}</option>`;
+        });
+        html += `</select>
+                </div>`;
+        // Thêm các input khác tại đây nếu cần (ví dụ: cột tên, cột file đính kèm)
+        columnMappingArea.innerHTML = html;
+    }
+
+
+    // --- Preview Template ---
+    if (previewTemplateButton) {
+        previewTemplateButton.addEventListener('click', function() {
+            const templateId = emailTemplateSelect.value;
+            if (!templateId) {
+                alert('Vui lòng chọn một mẫu email để xem trước.');
+                return;
+            }
+            showLoading(true, "Đang tải xem trước...");
+            // Gọi API từ templates.js để lấy nội dung xem trước
+            if (typeof getTemplatePreview === 'function') {
+                getTemplatePreview(templateId, { /* sample data if needed */ })
+                    .then(htmlContent => {
+                        showLoading(false);
+                        // Hiển thị nội dung HTML trong một iframe hoặc div an toàn
+                        templatePreviewArea.innerHTML = `<iframe srcdoc="${htmlContent.replace(/"/g, '&quot;')}" style="width:100%; height:300px; border:1px solid #ccc;"></iframe>`;
+                    })
+                    .catch(error => {
+                        showLoading(false);
+                        console.error('Lỗi xem trước mẫu:', error);
+                        templatePreviewArea.innerHTML = `<p class="text-danger">Không thể tải xem trước: ${error.message}</p>`;
+                    });
+            } else {
+                showLoading(false);
+                templatePreviewArea.innerHTML = `<p class="text-warning">Chức năng xem trước chưa sẵn sàng.</p>`;
+            }
+        });
+    }
+
+
+    // --- Handle Form Submission ---
+    if (bulkEmailForm) {
+        bulkEmailForm.addEventListener('submit', function(event) {
+            event.preventDefault();
+            resultsArea.innerHTML = ''; // Xóa kết quả cũ
+            showLoading(true, "Đang xử lý gửi email...");
+
+            const formData = new FormData();
+            const excelFile = excelFileInput.files[0];
+            const emailSubject = document.getElementById('email-subject').value;
+            const templateId = emailTemplateSelect.value;
+            
+            // Các trường mới cho backend thống nhất
+            const emailColumn = document.getElementById('email-column-name') ? document.getElementById('email-column-name').value : 'email'; // Lấy từ UI mapping hoặc mặc định
+            const attachmentColumn = document.getElementById('attachment-column-name') ? document.getElementById('attachment-column-name').value : '';
+            const attachmentsBaseFolder = document.getElementById('attachments-base-folder') ? document.getElementById('attachments-base-folder').value : '';
+            const startIndex = document.getElementById('start-index') ? document.getElementById('start-index').value : '1'; // Mặc định gửi từ dòng 1 (sau header)
+            const endIndex = document.getElementById('end-index') ? document.getElementById('end-index').value : '';
+
+
+            if (!excelFile) {
+                alert('Vui lòng chọn file Excel.');
+                showLoading(false);
+                return;
+            }
+            if (!emailSubject) {
+                alert('Vui lòng nhập chủ đề email.');
+                showLoading(false);
+                return;
+            }
+            if (!templateId) {
+                alert('Vui lòng chọn một mẫu email.');
+                showLoading(false);
+                return;
+            }
+
+            formData.append('excel_file', excelFile);
+            formData.append('email_subject', emailSubject);
+            formData.append('template_id', templateId);
+            formData.append('email_column', emailColumn);
+            formData.append('attachment_column', attachmentColumn);
+            formData.append('attachments_base_folder', attachmentsBaseFolder);
+            formData.append('start_index', startIndex);
+            formData.append('end_index', endIndex);
+
+            fetch('/api/email/send-bulk', {
+                method: 'POST',
+                body: formData,
+                // headers: { 'Authorization': 'Bearer ' + localStorage.getItem('access_token') } // Nếu có auth
+            })
+            .then(response => {
+                if (!response.ok) { // Nếu server trả về lỗi (4xx, 5xx)
+                    return response.json().then(errData => {
+                        throw new Error(errData.message || `Lỗi ${response.status} từ server.`);
+                    });
                 }
-            },
-            error: function() {
-                $('#excel-headers-block').html('<span class="text-danger">Lỗi khi đọc file Excel!</span>');
-            }
-        });
-    });
-
-    // Preview template with sample data
-    $('#preview-template-btn').on('click', function() {
-        const templateId = $('#email-template').val();
-        if (!templateId) {
-            $('#template-preview-block').hide();
-            return;
-        }
-        // Lấy sample data từ biến Excel nếu có
-        let sampleData = {};
-        const headersHtml = $('#excel-headers-block').text();
-        if (headersHtml) {
-            const matches = headersHtml.match(/\{\{(.*?)\}\}/g);
-            if (matches) {
-                matches.forEach(m => {
-                    const key = m.replace(/\{|\}/g, '').trim();
-                    sampleData[key] = 'Demo';
-                });
-            }
-        }
-        $.ajax({
-            url: `/api/email/templates/${templateId}/preview`,
-            type: 'POST',
-            contentType: 'application/json',
-            data: JSON.stringify({ data: sampleData }),
-            success: function(res) {
-                $('#template-preview').html(res.html || '<i>Không có nội dung</i>');
-                $('#template-preview-block').show();
-            },
-            error: function() {
-                $('#template-preview').html('<span class="text-danger">Lỗi khi xem trước mẫu!</span>');
-                $('#template-preview-block').show();
-            }
-        });
-    });
-
-    // Gửi bulk email qua API động
-    $('#bulk-email-form').on('submit', function(e) {
-        e.preventDefault();
-        $('#email-loading-indicator').show();
-        $('#email-status-messages').html('');
-
-        // Lấy dữ liệu form
-        const templateId = $('#email-template').val();
-        const excelFile = $('#excel-file')[0].files[0];
-        const attachmentsFolder = $('#attachments-folder').val();
-        const startIndex = $('#start-index').val();
-        const endIndex = $('#end-index').val();
-
-        if (!templateId || !excelFile) {
-            $('#email-status-messages').html('<div class="alert alert-danger">Vui lòng chọn mẫu email và file Excel!</div>');
-            $('#email-loading-indicator').hide();
-            return;
-        }
-
-        // Chuẩn bị form data
-        const formData = new FormData();
-        formData.append('template_id', templateId);
-        formData.append('excel_file', excelFile);
-        formData.append('attachments_folder', attachmentsFolder);
-        if (startIndex) formData.append('start_index', startIndex);
-        if (endIndex) formData.append('end_index', endIndex);
-
-        // Gửi request tới API
-        $.ajax({
-            url: '/api/email/send-bulk',
-            type: 'POST',
-            data: formData,
-            processData: false,
-            contentType: false,
-            success: function(res) {
-                $('#email-loading-indicator').hide();
-                if (res.success) {
-                    $('#email-status-messages').html('<div class="alert alert-success">Đã gửi email thành công!<br>' + (res.message || '') + '</div>');
-                } else {
-                    $('#email-status-messages').html('<div class="alert alert-danger">Lỗi gửi email: ' + (res.message || 'Không rõ lỗi') + '</div>');
+                return response.json();
+            })
+            .then(data => {
+                showLoading(false);
+                console.log('Phản hồi từ server:', data);
+                let messageHtml = `<div class="alert alert-${data.success ? 'info' : 'danger'}" role="alert">${data.message || 'Hoàn thành xử lý.'}</div>`;
+                
+                if (data.log_file) {
+                    messageHtml += `<p><a href="/api/email/download-log/${data.log_file}" target="_blank" class="btn btn-secondary btn-sm">
+                                        <i class="fas fa-download"></i> Tải File Log (${data.log_file})
+                                   </a></p>`;
                 }
-            },
-            error: function(xhr) {
-                $('#email-loading-indicator').hide();
-                $('#email-status-messages').html('<div class="alert alert-danger">Lỗi hệ thống khi gửi email!</div>');
-            }
-        });
-    });
 
-    // On page load, fetch templates
-    loadDynamicTemplates();
+                if (data.results && Array.isArray(data.results)) {
+                    messageHtml += '<h4>Chi tiết gửi email:</h4>';
+                    messageHtml += `<div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                                        <table class="table table-striped table-hover table-sm">
+                                            <thead class="table-light sticky-top">
+                                                <tr>
+                                                    <th>Hàng Excel</th>
+                                                    <th>Email</th>
+                                                    <th>Trạng thái</th>
+                                                    <th>Thông báo</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>`;
+                    data.results.forEach(res => {
+                        const statusClass = res.status === 'success' ? 'text-success' : 'text-danger';
+                        messageHtml += `<tr>
+                                            <td>${res.row}</td>
+                                            <td>${res.email || 'N/A'}</td>
+                                            <td class="${statusClass}">${res.status}</td>
+                                            <td>${res.message || ''}</td>
+                                        </tr>`;
+                    });
+                    messageHtml += '</tbody></table></div>';
+                }
+                resultsArea.innerHTML = messageHtml;
+            })
+            .catch(error => {
+                showLoading(false);
+                console.error('Lỗi khi gửi email hàng loạt:', error);
+                resultsArea.innerHTML = `<div class="alert alert-danger" role="alert">
+                                            <strong>Lỗi nghiêm trọng:</strong> ${error.message || 'Không thể kết nối tới server hoặc có lỗi không xác định.'}
+                                         </div>`;
+            });
+        });
+    }
+
+    // --- Helper function for loading indicator ---
+    function showLoading(isLoading, message = "Đang tải...") {
+        if (loadingIndicator) {
+            const loadingMessage = loadingIndicator.querySelector('.loading-message');
+            if (loadingMessage) {
+                loadingMessage.textContent = message;
+            }
+            loadingIndicator.style.display = isLoading ? 'flex' : 'none';
+        }
+    }
+
+    // --- Initial Load ---
+    loadDynamicTemplates(); // Tải danh sách mẫu email khi trang được tải
+
+    // Có thể bạn muốn gọi hàm `loadAvailablePlaceholders()` từ `templates.js` nếu có để hiển thị các placeholder có sẵn.
+    if (typeof loadAvailablePlaceholders === 'function') {
+         loadAvailablePlaceholders();
+    }
 });
