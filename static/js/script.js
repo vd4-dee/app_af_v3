@@ -400,20 +400,40 @@ document.addEventListener('DOMContentLoaded', () => {
     async function fetchAndPopulateAdvancedSettings() {
         try {
             const response = await fetchData('/download/get-advanced-settings');
-            if (response && response.status === 'success') {
-                // Use the existing element references from the top of the file
-                if (otpSecretInput) otpSecretInput.value = response.otp_secret || '';
-                if (driverPathInput) driverPathInput.value = response.driver_path || '';
-                if (downloadBasePathInput) downloadBasePathInput.value = response.download_base_path || '';
+            
+            // Check if response exists and has data
+            if (response) {
+                // Make sure the elements exist before trying to set values
+                const elements = {
+                    otpSecretInput: document.getElementById('otpSecretInput'),
+                    driverPathInput: document.getElementById('driverPathInput'),
+                    downloadBasePathInput: document.getElementById('downloadBasePathInput')
+                };
+    
+                // Set values if elements exist
+                if (elements.otpSecretInput) {
+                    elements.otpSecretInput.value = response.otp_secret || '';
+                }
+                if (elements.driverPathInput) {
+                    elements.driverPathInput.value = response.driver_path || '';
+                }
+                if (elements.downloadBasePathInput) {
+                    elements.downloadBasePathInput.value = response.download_base_path || '';
+                }
+    
+                // If any element is missing, log a warning
+                if (!elements.otpSecretInput || !elements.driverPathInput || !elements.downloadBasePathInput) {
+                    console.warn('One or more form elements not found');
+                }
             } else {
-                showNotification('Failed to load advanced settings', 'error');
+                throw new Error('No response from server');
             }
-        } catch (e) {
-            console.error('Error loading advanced settings:', e);
-            showNotification('Failed to load advanced settings', 'error');
+        } catch (error) {
+            console.error('Error loading advanced settings:', error);
+            showNotification('Failed to load advanced settings. ' + (error.message || ''), 'error');
         }
     }
-
+    
     // Sự kiện click được xử lý trong appState.js
     document.addEventListener('click', (e) => {
         const card = e.target.closest('.card[data-target]');

@@ -1,6 +1,10 @@
 # filename: config.py
 import os
 
+OTP_SECRET = '12121212121212'
+DRIVER_PATH = '867878678'
+DOWNLOAD_BASE_PATH = '8678678678'
+
 class Config:
     """
     Lớp cấu hình cơ sở cho ứng dụng Flask.
@@ -42,9 +46,9 @@ class Config:
     # IMPORTANT: Replace 'YOUR_ACTUAL_BASE32_OTP_SECRET_HERE' with a real, securely generated Base32 secret.
     # You can generate one using `pyotp.random_base32()` in a Python console.
     # Example: OTP_SECRET = 'JBSWY3DPEHPK3PXP'
-    OTP_SECRET = 'YOUR_ACTUAL_BASE32_OTP_SECRET_HERE'
-    DRIVER_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'chromedriver.exe')
-    DOWNLOAD_BASE_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'instance', 'downloads')
+    OTP_SECRET = 'TAPHLYTABSKHTZWM'
+    DRIVER_PATH = r"D:\Py\app_af_v3\chromedriver.exe"
+    DOWNLOAD_BASE_PATH = r"D:\OneDrive\KT\Checking"
 
     # --- Optional Configuration (UI Defaults) ---
     DEFAULT_EMAIL = os.getenv('DEFAULT_EMAIL', 'khangvd4')
@@ -60,7 +64,7 @@ class Config:
 
 
     # --- Validation and Warnings ---
-    if not OTP_SECRET or OTP_SECRET == 'YOUR_ACTUAL_BASE32_OTP_SECRET_HERE':
+    if not OTP_SECRET or OTP_SECRET == 'TAPHLYTABSKHTZWM':
         print("\n" + "="*60)
         print("== WARNING: OTP_SECRET is using the default example value or is empty! ==")
         print("== Please configure it securely via Environment Variables or other methods. ==")

@@ -10,6 +10,8 @@ def get_report_url(report_type=None):
         "FAF006 - Supplier Return Report": 'https://bi.nhathuoclongchau.com.vn/MIS/PHAR/PHARFAF006.aspx',
         "FAF028 - Detailed Import - Export Transaction Report": 'https://bi.nhathuoclongchau.com.vn/MIS/PHAR/PHARFAF028.aspx',
         "FAF030 - FAF Inventory Report": 'https://bi.nhathuoclongchau.com.vn/MIS/PHAR/PHARFAF030.aspx',
+        "PHAR157 - Báo Cáo Thông Tin Shop Mở Bán": 'https://bi.nhathuoclongchau.com.vn/MIS/PHAR/PHAR157.aspx',
+        "FAF010 - Báo Cáo Quỹ": 'https://bi.nhathuoclongchau.com.vn/MIS/PHAR/PHARFAF010.aspx'
     }
     if report_type:
         # Case-insensitive and whitespace-insensitive lookup

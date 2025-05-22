@@ -22,7 +22,7 @@ def load_config_values():
             # Use regex to find the values
             for key in config_values.keys():
                 # Look for patterns like: KEY = 'value' or KEY = "value" or KEY = value
-                match = re.search(fr"^{key}\s*=\s*['\"]([^'\"]*)['\"]|{key}\s*=\s*([^\n#]+)", content, re.MULTILINE)
+                match = re.search(fr"^\s*{key}\s*=\s*['\"]([^'\"]*)['\"]|\s*{key}\s*=\s*([^\n#]+)", content, re.MULTILINE)
                 if match:
                     # Get the first non-None group (either quoted or unquoted value)
                     value = next((g for g in match.groups() if g is not None), '')

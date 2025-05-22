@@ -26,7 +26,7 @@ import pandas as pd
 import numpy as np
 import sqlite3
 import uuid
-from flask import current_app
+
 # --- Local Imports --- 
 # Assuming these are in the root directory or accessible
 # Adjust paths if necessary (e.g., from .. import config)
@@ -811,21 +811,11 @@ def cancel_schedule(job_id):
 
 @download_bp.route('/get-advanced-settings', methods=['GET'])
 def get_advanced_settings():
-    try:
-        # Load current values from config file
-        config_values = load_config_values()
-        return jsonify({
-            'status': 'success',
-            'otp_secret': config_values.get('OTP_SECRET', ''),
-            'driver_path': config_values.get('DRIVER_PATH', ''),
-            'download_base_path': config_values.get('DOWNLOAD_BASE_PATH', '')
-        })
-    except Exception as e:
-        current_app.logger.error(f"Error getting advanced settings: {str(e)}")
-        return jsonify({
-            'status': 'error',
-            'message': f'Failed to load advanced settings: {str(e)}'
-        }), 500
+    return jsonify({
+        'otp_secret': getattr(config, 'OTP_SECRET', ''),
+        'driver_path': getattr(config, 'DRIVER_PATH', ''),
+        'download_base_path': getattr(config, 'DOWNLOAD_BASE_PATH', '')
+    })
 
 @download_bp.route('/save-advanced-settings', methods=['POST'])
 def save_advanced_settings():

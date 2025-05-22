@@ -1579,8 +1579,3 @@ class WebAutomation:
                 self.wait = None
         else:
              self._log("WebDriver session already closed or not initialized.")
-
-
-# --- Standalone Functionality (Removed or Commented Out if Not Used) ---
-# class Functionality:
-#    ... (Keep if needed for other purposes) ...
