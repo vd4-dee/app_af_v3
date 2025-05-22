@@ -1,9 +1,10 @@
-from flask import Blueprint, request, jsonify, Response, stream_with_context, current_app # type: ignore
+from flask import Blueprint, request, jsonify, Response, stream_with_context # type: ignore
 import threading
 import time
 import os
 import json
 import sys
+from flask import current_app
 
 # Add the project root to the Python path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -15,7 +16,7 @@ parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 
-from utils.config_manager import load_config_values, save_config_values
+from utils.config_manager import save_config_values, load_config_values
 import traceback
 from datetime import datetime, timezone, timedelta
 from apscheduler.jobstores.base import JobLookupError # type: ignore
@@ -811,72 +812,44 @@ def cancel_schedule(job_id):
 
 @download_bp.route('/get-advanced-settings', methods=['GET'])
 def get_advanced_settings():
-    return jsonify({
-        'otp_secret': getattr(config, 'OTP_SECRET', ''),
-        'driver_path': getattr(config, 'DRIVER_PATH', ''),
-        'download_base_path': getattr(config, 'DOWNLOAD_BASE_PATH', '')
-    })
+    try:
+        # Lấy giá trị đã được Flask tính toán khi load config.py
+        evaluated_otp_secret = current_app.config.get('OTP_SECRET', '')
+        evaluated_driver_path = current_app.config.get('DRIVER_PATH', '')
+        evaluated_download_base_path = current_app.config.get('DOWNLOAD_BASE_PATH', '')
+
+        return jsonify({
+            'status': 'success',
+            'otp_secret': evaluated_otp_secret,
+            'driver_path': evaluated_driver_path,
+            'download_base_path': evaluated_download_base_path
+        })
+    except Exception as e:
+        current_app.logger.error(f"Error getting advanced settings: {e}")
+        traceback.print_exc()
+        return jsonify({'status': 'error', 'message': f'Failed to get advanced settings: {e}'})
 
 @download_bp.route('/save-advanced-settings', methods=['POST'])
 def save_advanced_settings():
     try:
         data = request.get_json()
-        if not data:
-            return jsonify({'status': 'error', 'message': 'No data provided'}), 400
-        
-        # Prepare the config values to save
-        config_values = {}
-        if 'otp_secret' in data:
-            config_values['OTP_SECRET'] = data['otp_secret']
-        if 'driver_path' in data:
-            config_values['DRIVER_PATH'] = data['driver_path']
-        if 'download_base_path' in data:
-            config_values['DOWNLOAD_BASE_PATH'] = data['download_base_path']
-        
-        # Get the config file path for permission check
-        from utils.config_manager import get_config_path
-        config_path = get_config_path()
-        
-        # Check if config file is writable
-        if not os.access(config_path, os.W_OK):
-            error_msg = f"No write permission for config file: {config_path}"
-            current_app.logger.error(error_msg)
-            return jsonify({
-                'status': 'error',
-                'message': error_msg
-            }), 403
-        
-        # Save the values to config file
-        success, message = save_config_values(config_values)
-        
+        config_to_save = {
+            'OTP_SECRET': data.get('otp_secret'),
+            'DRIVER_PATH': data.get('driver_path'),
+            'DOWNLOAD_BASE_PATH': data.get('download_base_path')
+        }
+
+        success, message = save_config_values(config_to_save) # Gọi hàm lưu từ config_manager
+
         if success:
-            # Update the running config
-            for key, value in config_values.items():
-                setattr(config, key, value)
-            
-            current_app.logger.info("Successfully updated advanced settings")
-            return jsonify({
-                'status': 'success',
-                'message': message
-            })
+            # Cập nhật config của app đang chạy
+            current_app.config['OTP_SECRET'] = config_to_save['OTP_SECRET']
+            current_app.config['DRIVER_PATH'] = config_to_save['DRIVER_PATH']
+            current_app.config['DOWNLOAD_BASE_PATH'] = config_to_save['DOWNLOAD_BASE_PATH']
+            return jsonify({'status': 'success', 'message': message})
         else:
-            current_app.logger.error(f"Failed to save config: {message}")
-            return jsonify({
-                'status': 'error',
-                'message': message
-            }), 500
-            
+            return jsonify({'status': 'error', 'message': message}), 500
     except Exception as e:
-        error_msg = f"Error saving advanced settings: {str(e)}"
-        current_app.logger.error(error_msg)
-        current_app.logger.error(traceback.format_exc())  # Log full traceback
-        return jsonify({
-            'status': 'error',
-            'message': error_msg
-        }), 500
-
-# --- Other necessary functions/logic for download ---
-# (Could add more helper functions specific to download here if needed)
-
-# --- Other necessary functions/logic for download ---
-# Ví dụ: Các hàm xử lý logic download cụ thể nếu không đặt trong run_download_process
+        current_app.logger.error(f"Error saving advanced settings: {e}")
+        traceback.print_exc()
+        return jsonify({'status': 'error', 'message': f'Failed to save advanced settings: {e}'})
