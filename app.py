@@ -185,6 +185,9 @@ def create_app(config_object_name='config.Config'):
 
     # 8. Define Basic Routes (Login, Logout, Index, Docs)
     # --------------------------------------------------
+    # Re-import datetime and timezone to ensure they are in scope for this function
+    from datetime import datetime, timezone, timedelta
+
     @app.route('/login', methods=['GET', 'POST'])
     def login():
         if request.method == 'POST':

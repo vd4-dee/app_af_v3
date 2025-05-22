@@ -39,7 +39,10 @@ class Config:
     # Các cấu hình liên quan đến logging
     LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()
 
-    OTP_SECRET = 'YOUR_GENERATED_OTP_SECRET' # Replace with your actual OTP secret
+    # IMPORTANT: Replace 'YOUR_ACTUAL_BASE32_OTP_SECRET_HERE' with a real, securely generated Base32 secret.
+    # You can generate one using `pyotp.random_base32()` in a Python console.
+    # Example: OTP_SECRET = 'JBSWY3DPEHPK3PXP'
+    OTP_SECRET = 'YOUR_ACTUAL_BASE32_OTP_SECRET_HERE'
     DRIVER_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'chromedriver.exe')
     DOWNLOAD_BASE_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'instance', 'downloads')
 
@@ -57,7 +60,7 @@ class Config:
 
 
     # --- Validation and Warnings ---
-    if not OTP_SECRET or OTP_SECRET == 'TAPHLYTABSKHTZWM': # Check against the example value
+    if not OTP_SECRET or OTP_SECRET == 'YOUR_ACTUAL_BASE32_OTP_SECRET_HERE':
         print("\n" + "="*60)
         print("== WARNING: OTP_SECRET is using the default example value or is empty! ==")
         print("== Please configure it securely via Environment Variables or other methods. ==")

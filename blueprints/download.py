@@ -26,7 +26,7 @@ import pandas as pd
 import numpy as np
 import sqlite3
 import uuid
-
+from flask import current_app
 # --- Local Imports --- 
 # Assuming these are in the root directory or accessible
 # Adjust paths if necessary (e.g., from .. import config)
@@ -38,10 +38,8 @@ from utils_legacy import load_configs, save_configs, stream_status_update # Impo
 # --- Remove direct import from app --- 
 # from app import lock, status_messages, is_running 
 
-# Placeholder cho các biến global - Cần cơ chế quản lý tốt hơn (app context, DI)
-status_messages = []
-is_running = False
-lock = threading.Lock() # Mỗi blueprint có lock riêng? Hay dùng chung từ app?
+# Global state should be accessed via current_app.config or current_app attributes
+# (These placeholders are removed as they are not used consistently)
 
 # --- Blueprint Definition ---
 download_bp = Blueprint('download', __name__, url_prefix='/download')
@@ -52,7 +50,13 @@ download_bp = Blueprint('download', __name__, url_prefix='/download')
 # --- SQLite Utility Functions ---
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'db', 'scheduler.db')
 WEB_SESSION_DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'db', 'web_sessions.db')
-
+def handle_start_download():
+    app_state = current_app.config['SHARED_APP_STATE']
+    with current_app.config['GLOBAL_LOCK']:
+        if app_state.get('is_automation_running', False): # SỬ DỤNG TÊN KEY ĐÚNG
+            return jsonify({'status': 'error', 'message': 'Quá trình tải đã chạy rồi, vui lòng đợi hoàn tất.'}), 409
+        app_state['is_automation_running'] = True # SỬ DỤNG TÊN KEY ĐÚNG
+        
 def init_web_sessions_db():
     schema_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'db', 'web_sessions_schema.sql')
     with sqlite3.connect(WEB_SESSION_DB_PATH) as conn, open(schema_path, 'r', encoding='utf-8') as f:
@@ -136,9 +140,10 @@ def run_download_process(params, session_id=None):
     process_successful = True
 
     try:
-        lock = current_app.lock
-        shared_state = current_app.shared_state
-        status_list = current_app.status_messages # Get the list reference
+        # Access global state from current_app.config
+        lock = current_app.config['GLOBAL_LOCK']
+        shared_state = current_app.config['SHARED_APP_STATE']
+        status_list = current_app.status_messages # This is correctly attached in app.py
 
         # --- Setup within Lock ---
         with lock:
@@ -402,22 +407,23 @@ def run_download_process(params, session_id=None):
             update_job_status_by_session(session_id, 'finished')
 
         try:
-            # Reset running state using current_app
-            with current_app.lock:
-                current_app.shared_state['is_running'] = False
+            # Reset running state using the global lock and shared state
+            with current_app.config['GLOBAL_LOCK']:
+                current_app.config['SHARED_APP_STATE']['is_automation_running'] = False # Use the key from shared_app_state
         except (AttributeError, KeyError) as final_e:
-             print(f"Error resetting running state via current_app: {final_e}")
+             print(f"Error resetting running state via current_app.config: {final_e}")
 
 # --- Scheduled Task Trigger (Uses app context) ---
 def trigger_scheduled_download(config_name, app, session_id):
     print(f"Scheduler attempting job for config: {config_name}, session: {session_id}")
     with app.app_context():
         try:
-            lock = app.lock
-            shared_state = app.shared_state
+            # Access global state from the app object passed to the scheduled function
+            lock = app.config['GLOBAL_LOCK']
+            shared_state = app.config['SHARED_APP_STATE']
             # Check if already running
             with lock:
-                if shared_state['is_running']:
+                if shared_state['is_automation_running']: # Use the key from shared_app_state
                     print(f"Scheduler: Download process already running. Skipping job for '{config_name}'.")
                     return
 
@@ -472,29 +478,45 @@ def get_reports_regions():
 def handle_start_download():
     """Handles the request to start the download process."""
     try:
-        lock = current_app.lock
-        shared_state = current_app.shared_state
+        # Access global state from current_app.config
+        lock = current_app.config['GLOBAL_LOCK']
+        shared_state = current_app.config['SHARED_APP_STATE']
         with lock:
-            if shared_state['is_running']:
+            if shared_state['is_automation_running']: # Use the key from shared_app_state
                 return jsonify({"status": "error", "message": "Download process already running."}), 409
 
-        params = request.get_json()
-        if not params:
+        data_from_frontend = request.get_json()
+        if not data_from_frontend:
             return jsonify({"status": "error", "message": "Missing request data."}) , 400
 
-        if not all(k in params for k in ('email', 'password', 'reports')):
-            return jsonify({"status": "error", "message": "Missing required parameters (email, password, reports)."}), 400
-        if not isinstance(params['reports'], list) or not params['reports']:
-            return jsonify({"status": "error", "message": "'reports' must be a non-empty list."}), 400
+        # Extract core parameters from frontend
+        email = data_from_frontend.get('email')
+        password = data_from_frontend.get('password')
+        reports = data_from_frontend.get('reports')
+        regions = data_from_frontend.get('regions', []) # Regions might be optional
+
+        if not all([email, password, reports]) or not isinstance(reports, list) or not reports:
+            return jsonify({"status": "error", "message": "Missing required parameters (email, password, reports) or 'reports' is empty/invalid."}), 400
+
+        # Construct params for run_download_process, prioritizing backend config for sensitive/global settings
+        params_for_download = {
+            'email': email,
+            'password': password,
+            'reports': reports,
+            'regions': regions,
+            'otp_secret': current_app.config.get('OTP_SECRET', ''),
+            'driver_path': current_app.config.get('DRIVER_PATH', ''),
+            'download_base_path': current_app.config.get('DOWNLOAD_BASE_PATH', '')
+        }
 
         # Run download in a separate thread within app context
         app = current_app._get_current_object()
         session_id = str(uuid.uuid4())
-        def run_with_context(app, params, session_id):
+        def run_with_context(app, download_params, session_id):
              with app.app_context():
-                 run_download_process(params, session_id)
+                 run_download_process(download_params, session_id)
         
-        thread = threading.Thread(target=run_with_context, args=(app, params, session_id), daemon=True)
+        thread = threading.Thread(target=run_with_context, args=(app, params_for_download, session_id), daemon=True)
         thread.start()
 
         return jsonify({"status": "success", "message": "Download process started in background.", "session_id": session_id}) , 202
@@ -511,9 +533,10 @@ def stream_status_events():
         while True:
             try:
                 # Access shared state via current_app within the loop
-                lock = current_app.lock
-                status_messages_list = current_app.status_messages
-                shared_state = current_app.shared_state
+                # Access global state from current_app.config
+                lock = current_app.config['GLOBAL_LOCK']
+                status_messages_list = current_app.status_messages # This is correctly attached to app object
+                shared_state = current_app.config['SHARED_APP_STATE']
                 
                 with lock:
                     current_count = len(status_messages_list)
@@ -678,8 +701,9 @@ def schedule_job():
     config_name = data['config_name']
     run_datetime_str = data['run_datetime']
     try:
-        lock = current_app.lock
-        scheduler = current_app.scheduler # Access scheduler via context
+        # Access global state from current_app.config
+        lock = current_app.config['GLOBAL_LOCK']
+        scheduler = current_app.scheduler # Access scheduler via context (this is attached directly to app)
         
         if not run_datetime_str: return jsonify({'status': 'error', 'message': 'Run date/time required.'}), 400
         configs = load_configs()
@@ -733,7 +757,8 @@ def schedule_job():
 def get_schedules():
     """Gets the list of currently scheduled jobs."""
     try:
-        lock = current_app.lock
+        # Access global state from current_app.config
+        lock = current_app.config['GLOBAL_LOCK']
         scheduler = current_app.scheduler
         jobs_info = []
         with lock: 
