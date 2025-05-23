@@ -1,15 +1,15 @@
 def get_report_url(report_type=None):
     # Define your report URLs here
     report_urls = {
-        "FAF001 - Sales Report": 'https://bi.nhathuoclongchau.com.vn/MIS/PHAR/PHARFAF001.aspx',
-        "FAF002 - Dosage Report": 'https://bi.nhathuoclongchau.com.vn/MIS/PHAR/PHARFAF002.aspx',
-        "FAF003 - Report Of Other Imports And Exports": 'https://bi.nhathuoclongchau.com.vn/MIS/PHAR/PHARFAF003.aspx',
-        "FAF004N - Internal Rotation Report (Imports)": 'https://bi.nhathuoclongchau.com.vn/MIS/PHAR/PHARFAF004.aspx',
-        "FAF004X - Internal Rotation Report (Exports)": 'https://bi.nhathuoclongchau.com.vn/MIS/PHAR/PHARFAF004.aspx',
-        "FAF005 - Detailed Report Of Imports": 'https://bi.nhathuoclongchau.com.vn/MIS/PHAR/PHARFAF005.aspx',
-        "FAF006 - Supplier Return Report": 'https://bi.nhathuoclongchau.com.vn/MIS/PHAR/PHARFAF006.aspx',
-        "FAF028 - Detailed Import - Export Transaction Report": 'https://bi.nhathuoclongchau.com.vn/MIS/PHAR/PHARFAF028.aspx',
-        "FAF030 - FAF Inventory Report": 'https://bi.nhathuoclongchau.com.vn/MIS/PHAR/PHARFAF030.aspx',
+        "FAF001 -   Báo cáo bán hàng chi tiết rút gọn": 'https://bi.nhathuoclongchau.com.vn/MIS/PHAR/PHARFAF001.aspx',
+        "FAF002 - Báo cáo bán hàng chi tiết cắt liều": 'https://bi.nhathuoclongchau.com.vn/MIS/PHAR/PHARFAF002.aspx',
+        "FAF003 - Báo cáo nhập khác xuất khác": 'https://bi.nhathuoclongchau.com.vn/MIS/PHAR/PHARFAF003.aspx',
+        "FAF004N - Báo cáo luân chuyển nội bộ (Imports)": 'https://bi.nhathuoclongchau.com.vn/MIS/PHAR/PHARFAF004.aspx',
+        "FAF004X - Báo cáo luân chuyển nội bộ (Exports)": 'https://bi.nhathuoclongchau.com.vn/MIS/PHAR/PHARFAF004.aspx',
+        "FAF005 - Báo cáo nhập hàng": 'https://bi.nhathuoclongchau.com.vn/MIS/PHAR/PHARFAF005.aspx',
+        "FAF006 - Báo cáo trả hàng NCC": 'https://bi.nhathuoclongchau.com.vn/MIS/PHAR/PHARFAF006.aspx',
+        "FAF028 - Báo cáo chi tiết nhập xuất": 'https://bi.nhathuoclongchau.com.vn/MIS/PHAR/PHARFAF028.aspx',
+        "FAF030 - Báo cáo nhập xuất tồn": 'https://bi.nhathuoclongchau.com.vn/MIS/PHAR/PHARFAF030.aspx',
         "PHAR157 - Báo Cáo Thông Tin Shop Mở Bán": 'https://bi.nhathuoclongchau.com.vn/MIS/PHAR/PHAR157.aspx',
         "FAF010 - Báo Cáo Quỹ": 'https://bi.nhathuoclongchau.com.vn/MIS/PHAR/PHARFAF010.aspx'
     }

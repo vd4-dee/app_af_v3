@@ -11,8 +11,8 @@
     <link href="{{ url_for('static', filename='css/email/bulk_sender/styles.css') }}" rel="stylesheet">
 {% endblock %}
 
-{% block content %}
-    {% block bulk_email_content %}{% endblock %}
+{% block bulk_email_content %}
+    {# This block will be overridden by bulk_sender.html #}
 {% endblock %}
 
 {% block extra_js %}
