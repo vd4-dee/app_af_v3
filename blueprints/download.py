@@ -813,21 +813,28 @@ def cancel_schedule(job_id):
 @download_bp.route('/get-advanced-settings', methods=['GET'])
 def get_advanced_settings():
     try:
-        # Lấy giá trị đã được Flask tính toán khi load config.py
-        evaluated_otp_secret = current_app.config.get('OTP_SECRET', '')
-        evaluated_driver_path = current_app.config.get('DRIVER_PATH', '')
-        evaluated_download_base_path = current_app.config.get('DOWNLOAD_BASE_PATH', '')
+        otp_secret = current_app.config.get('OTP_SECRET', 'DefaultOTP') # Thêm giá trị default để dễ nhận biết
+        driver_path = current_app.config.get('DRIVER_PATH', 'DefaultDriverPath')
+        download_base_path = current_app.config.get('DOWNLOAD_BASE_PATH', 'DefaultDownloadPath')
+
+        # DEBUGGING: In ra những gì current_app.config chứa
+        print(f"[DEBUG] In /get-advanced-settings:")
+        print(f"[DEBUG]   OTP_SECRET from current_app.config: {otp_secret}")
+        print(f"[DEBUG]   DRIVER_PATH from current_app.config: {driver_path}")
+        print(f"[DEBUG]   DOWNLOAD_BASE_PATH from current_app.config: {download_base_path}")
+        # print(f"[DEBUG]   All current_app.config keys: {list(current_app.config.keys())}") # Nếu cần xem tất cả
 
         return jsonify({
             'status': 'success',
-            'otp_secret': evaluated_otp_secret,
-            'driver_path': evaluated_driver_path,
-            'download_base_path': evaluated_download_base_path
+            'otp_secret': otp_secret,
+            'driver_path': driver_path,
+            'download_base_path': download_base_path
         })
     except Exception as e:
-        current_app.logger.error(f"Error getting advanced settings: {e}")
-        traceback.print_exc()
-        return jsonify({'status': 'error', 'message': f'Failed to get advanced settings: {e}'})
+        current_app.logger.error(f"Error in /get-advanced-settings: {str(e)}")
+        import traceback
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @download_bp.route('/save-advanced-settings', methods=['POST'])
 def save_advanced_settings():

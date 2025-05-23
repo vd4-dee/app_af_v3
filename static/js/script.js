@@ -405,9 +405,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (response) {
                 // Make sure the elements exist before trying to set values
                 const elements = {
-                    otpSecretInput: document.getElementById('otpSecretInput'),
-                    driverPathInput: document.getElementById('driverPathInput'),
-                    downloadBasePathInput: document.getElementById('downloadBasePathInput')
+                    otpSecretInput: document.getElementById('otp-secret'),
+                    driverPathInput: document.getElementById('driver-path'),
+                    downloadBasePathInput: document.getElementById('download-base-path')
                 };
     
                 // Set values if elements exist

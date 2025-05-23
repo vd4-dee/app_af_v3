@@ -51,8 +51,10 @@ def create_app(config_object_name='config.Config'):
     """
     Application factory function.
     """
-    app = Flask(__name__, instance_relative_config=True)
-
+    app = Flask(__name__)
+    app.config.from_object(config_object_name) # Load từ class
+    app.config.from_pyfile('config.py', silent=False) # Load từ file (bao gồm biến module)
+ 
     # Initialize thread lock for thread-safe operations
     app.lock = threading.Lock()
     app.status_messages = []  # Initialize status_messages list
@@ -60,7 +62,7 @@ def create_app(config_object_name='config.Config'):
 
     # 1. Load Configuration
     # ---------------------
-    app.config.from_object(config_object_name)
+
     # Bạn có thể load thêm config từ file instance/config.py nếu cần
     # app.config.from_pyfile('production_config.py', silent=True)
 
@@ -326,7 +328,10 @@ def create_app(config_object_name='config.Config'):
             default_period_year=default_config.get('DEFAULT_PERIOD_YEAR', datetime.now().year),
             default_start_date=default_config.get('DEFAULT_START_DATE', (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')),
             default_end_date=default_config.get('DEFAULT_END_DATE', datetime.now().strftime('%Y-%m-%d')),
-            download_config=json.dumps(download_config)  # Pass as JSON string for JavaScript
+            download_config=json.dumps(download_config),  # Pass as JSON string for JavaScript
+            default_otp_secret=current_app.config.get('OTP_SECRET', ''),
+            default_driver_path=current_app.config.get('DRIVER_PATH', ''),
+            default_download_base_path=current_app.config.get('DOWNLOAD_BASE_PATH', '')
         )
 
     @app.route('/docs/')

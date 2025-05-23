@@ -79,6 +79,8 @@
                             <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
                             Send Emails
                         </button>
+                        <button type="button" class="btn btn-secondary ms-2" id="save-config-btn">Save Config</button>
+                        <button type="button" class="btn btn-info ms-2" id="load-config-btn">Load Config</button>
                     </form>
 
                     <!-- Loading Indicator -->
@@ -211,3 +213,8 @@
     </div>
 </div>
 {% endblock bulk_email_content %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/email/bulk_sender/main.js') }}"></script>
+<script src="{{ url_for('static', filename='js/email/bulk_sender/config_manager.js') }}"></script>
+{% endblock %}
