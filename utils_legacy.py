@@ -14,7 +14,7 @@ if sys.stdout.encoding.lower() != 'utf-8':
 
 def load_configs():
     """Loads configurations safely using app context."""
-    config_path = current_app.config['CONFIG_FILE_PATH']
+    config_path = current_app.config.get('CONFIG_FILE_PATH', '')
     if not os.path.exists(config_path): return {}
     try:
         # Access lock from the app context
@@ -30,7 +30,7 @@ def load_configs():
 
 def save_configs(configs):
     """Saves configurations safely using app context."""
-    config_path = current_app.config['CONFIG_FILE_PATH']
+    config_path = current_app.config.get('CONFIG_FILE_PATH', '')
     try:
         # Access lock from the app context
         with current_app.lock: 

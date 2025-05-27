@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Report Downloader{% endblock %}</title>
+    <title>{% block title %}Automation{% endblock %}</title>
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -235,14 +235,16 @@
                 <table class="data-table" id="active-downloads-table">
                     <thead>
                         <tr>
-                            <th></th>
+                            <th>Config Name</th>
                             <th>SessionID</th>
                             <th>Start Time</th>
                             <th>Elapsed Time</th>
+                            <th>Status</th>
+                            <th>Action</th>
                         </tr>
                     </thead>
                     <tbody id="active-downloads-list">
-                        <tr><td colspan="3" class="subtext">No active downloads.</td></tr>
+                        <tr><td colspan="6" class="subtext">No active downloads.</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -301,7 +303,7 @@
             margin: 5% auto;
             padding: 30px;
             border-radius: 8px;
-            max-width: 800px;
+            max-width: 1200px;
             max-height: 80vh;
             overflow-y: auto;
             position: relative;
@@ -440,5 +442,6 @@
     
     <script src="{{ url_for('static', filename='js/script.js') }}"></script>
     <script src="{{ url_for('static', filename='js/appState.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/active_downloads.js') }}"></script>
 </body>
 </html>

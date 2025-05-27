@@ -59,9 +59,17 @@ def handle_start_download():
         app_state['is_automation_running'] = True # SỬ DỤNG TÊN KEY ĐÚNG
         
 def init_web_sessions_db():
+    print(f"Attempting to initialize web sessions DB at {WEB_SESSION_DB_PATH}")
     schema_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'db', 'web_sessions_schema.sql')
-    with sqlite3.connect(WEB_SESSION_DB_PATH) as conn, open(schema_path, 'r', encoding='utf-8') as f:
-        conn.executescript(f.read())
+    try:
+        with sqlite3.connect(WEB_SESSION_DB_PATH) as conn, open(schema_path, 'r', encoding='utf-8') as f:
+            script = f.read()
+            conn.executescript(script)
+            print(f"Successfully executed web_sessions_schema.sql. Schema: {script[:100]}...")
+        print("Web sessions DB initialized successfully.")
+    except Exception as e:
+        print(f"Error initializing web sessions DB: {e}")
+        traceback.print_exc()
 
 def create_web_session(session_id, user_id=None, job_id=None, last_page=None):
     with sqlite3.connect(WEB_SESSION_DB_PATH) as conn:
@@ -93,9 +101,17 @@ def get_web_session(session_id):
 init_web_sessions_db()
 
 def init_scheduler_db():
+    print(f"Attempting to initialize scheduler DB at {DB_PATH}")
     schema_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'db', 'scheduler_schema.sql')
-    with sqlite3.connect(DB_PATH) as conn, open(schema_path, 'r', encoding='utf-8') as f:
-        conn.executescript(f.read())
+    try:
+        with sqlite3.connect(DB_PATH) as conn, open(schema_path, 'r', encoding='utf-8') as f:
+            script = f.read()
+            conn.executescript(script)
+            print(f"Successfully executed scheduler_schema.sql. Schema: {script[:100]}...")
+        print("Scheduler DB initialized successfully.")
+    except Exception as e:
+        print(f"Error initializing scheduler DB: {e}")
+        traceback.print_exc()
 
 def insert_job_to_db(job_id, config_name, next_run_time, session_id):
     with sqlite3.connect(DB_PATH) as conn:
@@ -135,7 +151,7 @@ def get_all_jobs_from_db():
 init_scheduler_db()
 
 # --- Download Process Function (Uses current_app) ---
-def run_download_process(params, session_id=None):
+def run_download_process(params, session_id=None, stop_event=None):
     """Main download function executed in a background thread."""
     automation = None # Ensure automation is always defined
     process_successful = True
@@ -155,7 +171,8 @@ def run_download_process(params, session_id=None):
             status_list.clear() # Clear the shared list
 
         if session_id:
-            update_job_status_by_session(session_id, 'running')
+            update_job_status_by_session(session_id, 'running') # Update jobs table
+            update_web_session_status(session_id, 'running') # Update web_sessions table
 
         # Use the utility function which now uses current_app
         stream_status_update("Starting report download process...", log_entry={
@@ -197,6 +214,11 @@ def run_download_process(params, session_id=None):
         if not driver_path:
             raise ValueError("DRIVER_PATH is not configured in app settings.")
         automation = WebAutomation(driver_path, specific_download_folder, status_callback=stream_status_update)
+        
+        if stop_event and stop_event.is_set():
+            stream_status_update("Download process cancelled before login.")
+            process_successful = False
+            return
 
         # --- Login ---
         stream_status_update(f"Logging in with user: {email}...")
@@ -405,7 +427,8 @@ def run_download_process(params, session_id=None):
         })
 
         if session_id:
-            update_job_status_by_session(session_id, 'finished')
+            update_job_status_by_session(session_id, 'finished') # Update jobs table
+            update_web_session_status(session_id, final_status.lower()) # Update web_sessions table
 
         try:
             # Reset running state using the global lock and shared state
@@ -413,6 +436,7 @@ def run_download_process(params, session_id=None):
                 current_app.config['SHARED_APP_STATE']['is_automation_running'] = False # Use the key from shared_app_state
         except (AttributeError, KeyError) as final_e:
              print(f"Error resetting running state via current_app.config: {final_e}")
+    return None # Explicitly return None to ensure function scope is properly closed
 
 # --- Scheduled Task Trigger (Uses app context) ---
 def trigger_scheduled_download(config_name, app, session_id):
@@ -457,6 +481,7 @@ def trigger_scheduled_download(config_name, app, session_id):
         except Exception as e:
             print(f"Scheduler ERROR for job '{config_name}': {e}")
             traceback.print_exc()
+    return None # Explicitly return None to ensure function scope is properly closed
 
 # --- Routes (Use current_app) ---
 
@@ -478,17 +503,22 @@ def get_reports_regions():
 @download_bp.route('/start-download', methods=['POST'])
 def handle_start_download():
     """Handles the request to start the download process."""
+    current_app.logger.debug("handle_start_download: Received request.")
     try:
         # Access global state from current_app.config
         lock = current_app.config['GLOBAL_LOCK']
         shared_state = current_app.config['SHARED_APP_STATE']
         with lock:
             if shared_state['is_automation_running']: # Use the key from shared_app_state
+                current_app.logger.warning("handle_start_download: Download process already running, returning 409.")
                 return jsonify({"status": "error", "message": "Download process already running."}), 409
 
         data_from_frontend = request.get_json()
         if not data_from_frontend:
+            current_app.logger.error("handle_start_download: Missing request data.")
             return jsonify({"status": "error", "message": "Missing request data."}) , 400
+
+        current_app.logger.debug(f"handle_start_download: Received data: {data_from_frontend}")
 
         # Extract core parameters from frontend
         email = data_from_frontend.get('email')
@@ -497,7 +527,10 @@ def handle_start_download():
         regions = data_from_frontend.get('regions', []) # Regions might be optional
 
         if not all([email, password, reports]) or not isinstance(reports, list) or not reports:
+            current_app.logger.error(f"handle_start_download: Missing required parameters. Email: {bool(email)}, Password: {bool(password)}, Reports: {bool(reports) and isinstance(reports, list) and bool(reports)}")
             return jsonify({"status": "error", "message": "Missing required parameters (email, password, reports) or 'reports' is empty/invalid."}), 400
+
+        current_app.logger.debug("handle_start_download: Required parameters validated.")
 
         # Construct params for run_download_process, prioritizing backend config for sensitive/global settings
         params_for_download = {
@@ -509,16 +542,32 @@ def handle_start_download():
             'driver_path': current_app.config.get('DRIVER_PATH', ''),
             'download_base_path': current_app.config.get('DOWNLOAD_BASE_PATH', '')
         }
+        current_app.logger.debug(f"handle_start_download: Params for download: {params_for_download}")
 
         # Run download in a separate thread within app context
         app = current_app._get_current_object()
         session_id = str(uuid.uuid4())
-        def run_with_context(app, download_params, session_id):
-             with app.app_context():
-                 run_download_process(download_params, session_id)
+        stop_event = threading.Event() # Create a stop event for this session
+
+        # Store the stop_event in the shared state
+        with lock:
+            shared_state['active_download_events'][session_id] = stop_event
         
-        thread = threading.Thread(target=run_with_context, args=(app, params_for_download, session_id), daemon=True)
+        # Create and update web session in DB
+        create_web_session(session_id) # Create initial entry
+        update_web_session_status(session_id, 'started') # Set initial status
+        current_app.logger.debug(f"handle_start_download: Web session {session_id} created and status set to 'started'.")
+
+        def run_with_context(app, download_params, session_id, stop_event):
+             with app.app_context():
+                 current_app.logger.debug(f"run_with_context: Starting run_download_process for session {session_id}.")
+                 run_download_process(download_params, session_id, stop_event)
+                 current_app.logger.debug(f"run_with_context: Finished run_download_process for session {session_id}.")
+        
+        thread = threading.Thread(target=run_with_context, args=(app, params_for_download, session_id, stop_event), daemon=True)
+        current_app.logger.debug(f"handle_start_download: Starting download thread for session {session_id}.")
         thread.start()
+        current_app.logger.debug(f"handle_start_download: Download thread started for session {session_id}.")
 
         return jsonify({"status": "success", "message": "Download process started in background.", "session_id": session_id}) , 202
     except Exception as e:
@@ -631,7 +680,7 @@ def get_download_logs():
 
 @download_bp.route('/get-configs', methods=['GET'])
 def get_configs():
-    config_path = os.path.join(current_app.root_path, 'configs.json')
+    config_path = current_app.config.get('CONFIG_FILE_PATH', '')
     if os.path.exists(config_path):
         with open(config_path, 'r', encoding='utf-8') as f:
             configs = json.load(f)
@@ -809,6 +858,82 @@ def cancel_schedule(job_id):
         current_app.logger.error(f"Error cancelling job {job_id}: {e}")
         traceback.print_exc()
         return jsonify({'status': 'error', 'message': f'Failed to cancel job "{job_id}": {e}'})
+
+@download_bp.route('/get-active-sessions', methods=['GET'])
+def get_active_sessions():
+    """Retrieves a list of currently active download sessions."""
+    try:
+        print(f"get_active_sessions: Connecting to WEB_SESSION_DB_PATH: {WEB_SESSION_DB_PATH}")
+        print(f"get_active_sessions: Attempting to attach scheduler DB from DB_PATH: {DB_PATH}")
+        with sqlite3.connect(WEB_SESSION_DB_PATH) as conn:
+            # Attach the scheduler database to the current connection
+            conn.execute(f"ATTACH DATABASE '{DB_PATH}' AS scheduler_db;")
+            
+            # Fetch sessions that are 'running' or 'started' and not yet 'finished' or 'cancelled'
+            # Also join with jobs table to get config_name if available
+            cur = conn.execute("""
+                SELECT ws.session_id, ws.user_id, ws.job_id, ws.last_page, ws.status, ws.created_at, ws.updated_at, scheduler_db.jobs.config_name
+                FROM web_sessions ws
+                LEFT JOIN scheduler_db.jobs ON ws.job_id = scheduler_db.jobs.id
+                WHERE ws.status IN ('running', 'started', 'in progress')
+                ORDER BY ws.created_at DESC
+            """)
+            sessions = [dict(zip([column[0] for column in cur.description], row)) for row in cur.fetchall()]
+        
+        # Filter out sessions that might have finished but not yet updated in web_sessions table
+        # by checking against active_download_events
+        active_events = current_app.config['SHARED_APP_STATE']['active_download_events']
+        filtered_sessions = [
+            s for s in sessions if s['session_id'] in active_events and not active_events[s['session_id']].is_set()
+        ]
+
+        return jsonify({'status': 'success', 'active_sessions': filtered_sessions})
+    except Exception as e:
+        current_app.logger.error(f"Error getting active sessions: {e}")
+        traceback.print_exc()
+        return jsonify({'status': 'error', 'message': f'Failed to retrieve active sessions: {e}'}), 500
+
+@download_bp.route('/cancel-active-session/<session_id>', methods=['POST'])
+def cancel_active_session(session_id):
+    """Cancels an active download session."""
+    lock = current_app.config['GLOBAL_LOCK']
+    shared_state = current_app.config['SHARED_APP_STATE']
+    current_app.logger.info(f"Received request to cancel active session: {session_id}")
+
+    with lock:
+        stop_event = shared_state['active_download_events'].get(session_id)
+        if stop_event:
+            stop_event.set() # Signal the thread to stop
+            current_app.logger.info(f"Signaled stop for session {session_id}.")
+            
+            # Update status in web_sessions DB
+            update_web_session_status(session_id, 'cancelled')
+            current_app.logger.info(f"Updated web_session {session_id} status to 'cancelled'.")
+
+            # Update status in jobs DB if associated job exists
+            job_id = get_job_id_by_session(session_id)
+            if job_id:
+                update_job_status(job_id, 'cancelled')
+                current_app.logger.info(f"Updated job {job_id} status to 'cancelled'.")
+            
+            # Remove from active_download_events
+            del shared_state['active_download_events'][session_id]
+            current_app.logger.info(f"Removed session {session_id} from active_download_events.")
+
+            # Optionally, reset is_automation_running if this was the only active session
+            if not shared_state['active_download_events']:
+                shared_state['is_automation_running'] = False
+                current_app.logger.info("No more active sessions, resetting is_automation_running to False.")
+
+            return jsonify({'status': 'success', 'message': f'Session "{session_id}" cancellation initiated.'})
+        else:
+            current_app.logger.warning(f"Session {session_id} not found in active_download_events or already finished.")
+            # Even if not in active_download_events, try to update DB status in case it was missed
+            update_web_session_status(session_id, 'cancelled')
+            job_id = get_job_id_by_session(session_id)
+            if job_id:
+                update_job_status(job_id, 'cancelled')
+            return jsonify({'status': 'error', 'message': f'Session "{session_id}" not found or already inactive.'}), 404
 
 @download_bp.route('/get-advanced-settings', methods=['GET'])
 def get_advanced_settings():

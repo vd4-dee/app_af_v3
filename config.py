@@ -26,6 +26,8 @@ class Config:
         'sqlite:///' + os.path.join(os.path.abspath(os.path.dirname(__file__)), 'instance', 'app.db')
     SQLALCHEMY_TRACK_MODIFICATIONS = False # Tắt theo dõi thay đổi đối tượng để tiết kiệm tài nguyên
 
+    DEBUG = True # Enable debug mode for detailed logging and development
+
     # Thư mục lưu trữ template email (sử dụng bởi blueprints/email/api_templates.py)
     # Đảm bảo thư mục này tồn tại hoặc được tạo khi ứng dụng khởi động
     TEMPLATE_FOLDER = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'email_templates_storage')

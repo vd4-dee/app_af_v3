@@ -88,76 +88,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let eventSource = null;
     let statusChart = null;
     let notificationTimeout = null;
-
-    // --- Active Download Sessions ---
-    let activeSessions = [];
-    let activeSessionsTimer = null;
-
-    function addActiveSession(sessionId, startTime, reports) {
-        activeSessions.push({ sessionId, startTime, reports, expanded: false });
-        renderActiveSessions();
-        if (!activeSessionsTimer) {
-            activeSessionsTimer = setInterval(renderActiveSessions, 1000);
-        }
-    }
-    function removeActiveSession(sessionId) {
-        activeSessions = activeSessions.filter(s => s.sessionId !== sessionId);
-        renderActiveSessions();
-        if (activeSessions.length === 0 && activeSessionsTimer) {
-            clearInterval(activeSessionsTimer);
-            activeSessionsTimer = null;
-        }
-    }
-    function renderActiveSessions() {
-        const list = document.getElementById('active-downloads-list');
-        if (!list) return;
-        if (activeSessions.length === 0) {
-            list.innerHTML = '<tr><td colspan="4" class="subtext">No active downloads.</td></tr>';
-            return;
-        }
-        list.innerHTML = '';
-        activeSessions.forEach((session, idx) => {
-            const elapsed = Math.floor((Date.now() - session.startTime) / 1000);
-            const hour = Math.floor(elapsed / 3600).toString().padStart(2, '0');
-            const min = Math.floor((elapsed % 3600) / 60).toString().padStart(2, '0');
-            const sec = (elapsed % 60).toString().padStart(2, '0');
-            const tr = document.createElement('tr');
-            tr.className = 'session-row';
-            tr.innerHTML = `
-                <td><button class="expand-btn" data-idx="${idx}">${session.expanded ? '▼' : '▶'}</button></td>
-                <td>${session.sessionId}</td>
-                <td>${new Date(session.startTime).toLocaleString()}</td>
-                <td>${hour}:${min}:${sec}</td>
-            `;
-            list.appendChild(tr);
-            // Detail row
-            const detailTr = document.createElement('tr');
-            detailTr.className = 'session-detail-row';
-            detailTr.style.display = session.expanded ? '' : 'none';
-            detailTr.innerHTML = `<td colspan="4">
-                <div class="report-list-detail">
-                    <strong>Reports being downloaded:</strong>
-                    <table class="data-table report-list-table">
-                        <thead><tr><th>Report Name</th><th>From Date</th><th>To Date</th><th>Chunk Size</th></tr></thead>
-                        <tbody>
-                            ${session.reports && session.reports.length > 0 ? session.reports.map(r => `
-                                <tr><td>${r.report_type}</td><td>${r.from_date}</td><td>${r.to_date}</td><td>${r.chunk_size}</td></tr>
-                            `).join('') : '<tr><td colspan="4" class="subtext">No reports</td></tr>'}
-                        </tbody>
-                    </table>
-                </div>
-            </td>`;
-            list.appendChild(detailTr);
-        });
-        // Add expand/collapse event listeners
-        list.querySelectorAll('.expand-btn').forEach(btn => {
-            btn.onclick = function() {
-                const idx = parseInt(btn.getAttribute('data-idx'));
-                activeSessions[idx].expanded = !activeSessions[idx].expanded;
-                renderActiveSessions();
-            };
-        });
-    }
+    // activeDownloadsInterval and currentActivePanelId are now managed in active_downloads.js
 
     // --- Helper Functions ---
 
@@ -357,6 +288,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // Lắng nghe sự kiện chuyển tab
     async function onPanelChanged(panelId) {
         console.log('Panel changed to:', panelId);
+        window.currentActivePanelId = panelId; // Update the global variable
+
+        // Clear any existing interval when changing panels
+        if (window.activeDownloadsInterval) {
+            clearInterval(window.activeDownloadsInterval);
+            window.activeDownloadsInterval = null;
+        }
         
         // Tải dữ liệu khi chuyển đến tab tương ứng
         switch(panelId) {
@@ -368,6 +306,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 break;
             case 'main-download-panel':
                 fetchAndPopulateReportData();
+                break;
+            case 'active-downloads-panel':
+                if (window.fetchActiveDownloads) {
+                    window.fetchActiveDownloads(); // Fetch immediately
+                    window.activeDownloadsInterval = setInterval(window.fetchActiveDownloads, 5000); // Refresh every 5 seconds
+                }
                 break;
             case 'advanced-settings-panel':
                 await fetchAndPopulateAdvancedSettings();
@@ -711,8 +655,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             showDownloadTimer && showDownloadTimer(); // Hiện timer khi bắt đầu tải
-            // Add to active sessions
-            addActiveSession(sessionId, sessionStartTime, currentData.reports);
+            // Add to active sessions using the globally exposed function
+            if (window.addActiveSession) {
+                window.addActiveSession(sessionId, sessionStartTime, currentData.reports);
+            }
             const result = await fetchData('/download/start-download', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -735,7 +681,10 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } catch (error) {
             hideDownloadTimer && hideDownloadTimer(); // Ẩn timer khi lỗi
-            removeActiveSession(sessionId); // Remove from active sessions on error
+            // Remove from active sessions on error using the globally exposed function
+            if (window.removeActiveSession) {
+                window.removeActiveSession(sessionId);
+            }
             downloadButton.disabled = false;
             loadingIndicator.style.display = 'none';
             // Enable lại các input/select nếu có lỗi
@@ -764,7 +713,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if (message === "FINISHED") {
                 addStatusMessage(statusMessagesDiv, "--- PROCESS COMPLETED ---", 'success');
                 hideDownloadTimer && hideDownloadTimer(); // Ẩn timer khi hoàn thành
-                removeActiveSession(sessionId); // Remove from active sessions on finish
+                // Remove from active sessions on finish using the globally exposed function
+                if (window.removeActiveSession) {
+                    window.removeActiveSession(sessionId);
+                }
                 if (eventSource) eventSource.close();
                 eventSource = null;
                 downloadButton.disabled = false;
@@ -773,7 +725,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 showNotification("Download process finished.", "success");
             } else if (message.startsWith("ERROR:")) {
                 addStatusMessage(statusMessagesDiv, message, 'error');
-                removeActiveSession(sessionId); // Remove on error
+                // Remove on error using the globally exposed function
+                if (window.removeActiveSession) {
+                    window.removeActiveSession(sessionId);
+                }
             } else {
                 addStatusMessage(statusMessagesDiv, message);
             }

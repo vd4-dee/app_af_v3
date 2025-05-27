@@ -25,6 +25,9 @@ import auth_google_sheet
 from utils_legacy import load_configs as load_legacy_configs, save_configs as save_legacy_configs
 # Bạn có thể xem xét việc chuyển utils_legacy vào một package 'utils'
 
+# Import database initialization functions from blueprints.download
+from blueprints.download import init_web_sessions_db, init_scheduler_db
+
 # --- Globals that are truly app-independent or need to be initialized before app ---
 # Scheduler có thể được khởi tạo ở đây vì nó không phụ thuộc trực tiếp vào app instance lúc khởi tạo
 # nhưng jobstores và executors sẽ được cấu hình trong create_app
@@ -43,7 +46,8 @@ global_lock = threading.Lock()
 # Hoặc nếu chỉ dùng trong context của request thì không cần global
 shared_app_state = {
     "is_automation_running": False,
-    "status_messages": []
+    "status_messages": [],
+    "active_download_events": {} # To store threading.Event objects for active sessions
 }
 
 
@@ -77,6 +81,12 @@ def create_app(config_object_name='config.Config'):
         SESSION_COOKIE_SAMESITE='Lax',
         PERMANENT_SESSION_LIFETIME=86400  # 1 day in seconds
     )
+
+    # Initialize database tables
+    with app.app_context():
+        init_web_sessions_db()
+        init_scheduler_db()
+        app.logger.info("Database tables initialized.")
 
     # 3. Initialize Global Objects/State tied to App Context (nếu cần)
     # -------------------------------------------------------------
@@ -238,9 +248,18 @@ def create_app(config_object_name='config.Config'):
                 flash('Email hoặc mật khẩu không đúng.', 'danger')
                 app.logger.warning(f"Đăng nhập thất bại cho email '{email}'.")
                 
+        # Load help content from guide.html
+        help_content = ""
+        try:
+            with open(os.path.join(current_app.root_path, 'templates', 'guide.html'), 'r', encoding='utf-8') as f:
+                help_content = f.read()
+        except Exception as e:
+            current_app.logger.error(f"Error loading help content: {e}")
+            help_content = "<p>Error loading help content.</p>"
+
         # For GET requests or failed logins
         app.logger.debug("Rendering login page")
-        return render_template('login.html', title="Đăng nhập")
+        return render_template('login.html', title="Đăng nhập", help_content=help_content)
 
     @app.route('/logout')
     def logout():
@@ -317,6 +336,15 @@ def create_app(config_object_name='config.Config'):
             
         app.logger.debug(f"Serving index with download config: {download_config}")
         
+        # Load help content from guide.html
+        help_content = ""
+        try:
+            with open(os.path.join(current_app.root_path, 'templates', 'guide.html'), 'r', encoding='utf-8') as f:
+                help_content = f.read()
+        except Exception as e:
+            current_app.logger.error(f"Error loading help content: {e}")
+            help_content = "<p>Error loading help content.</p>"
+
         return render_template(
             'index.html',
             title="Trang chủ",
@@ -331,7 +359,8 @@ def create_app(config_object_name='config.Config'):
             download_config=json.dumps(download_config),  # Pass as JSON string for JavaScript
             default_otp_secret=current_app.config.get('OTP_SECRET', ''),
             default_driver_path=current_app.config.get('DRIVER_PATH', ''),
-            default_download_base_path=current_app.config.get('DOWNLOAD_BASE_PATH', '')
+            default_download_base_path=current_app.config.get('DOWNLOAD_BASE_PATH', ''),
+            help_content=help_content # Pass help content to the template
         )
 
     @app.route('/docs/')
